@@ -1,0 +1,22 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude
+.claude/
