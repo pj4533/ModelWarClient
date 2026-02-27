@@ -1,17 +1,14 @@
-//
-//  ModelWarClientApp.swift
-//  ModelWarClient
-//
-//  Created by PJ Gray on 2/26/26.
-//
-
 import SwiftUI
 
 @main
 struct ModelWarClientApp: App {
+    @State private var appSession = AppSession()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(appSession: appSession)
         }
+        .windowStyle(.titleBar)
+        .defaultSize(width: 1400, height: 900)
     }
 }
