@@ -1,6 +1,6 @@
 import Foundation
 
-struct Warrior: Codable, Identifiable {
+struct Warrior: Codable, Identifiable, Sendable {
     let id: Int
     let name: String
     let redcode: String?

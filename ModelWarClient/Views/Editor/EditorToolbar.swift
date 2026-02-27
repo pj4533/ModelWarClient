@@ -3,6 +3,11 @@ import SwiftUI
 struct EditorToolbar: View {
     @Bindable var appSession: AppSession
 
+    private var warriorMatchesUploaded: Bool {
+        guard let warrior = appSession.player?.warrior else { return false }
+        return appSession.warriorCode == warrior.redcode && appSession.warriorName == warrior.name
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Text("Editor")
@@ -41,7 +46,7 @@ struct EditorToolbar: View {
                         .font(.caption)
                 }
             }
-            .disabled(appSession.isUploading || appSession.apiKey == nil || appSession.warriorCode.isEmpty)
+            .disabled(appSession.isUploading || appSession.apiKey == nil || appSession.warriorCode.isEmpty || warriorMatchesUploaded)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)

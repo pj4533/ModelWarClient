@@ -1,6 +1,6 @@
 import Foundation
 
-struct BattleReplay: Codable {
+struct BattleReplay: Codable, Sendable {
     let battleId: Int
     let challenger: ReplayWarrior
     let defender: ReplayWarrior
@@ -14,18 +14,18 @@ struct BattleReplay: Codable {
         case settings
     }
 
-    struct ReplayWarrior: Codable {
+    struct ReplayWarrior: Codable, Sendable {
         let name: String
         let redcode: String
     }
 
-    struct RoundResult: Codable {
+    struct RoundResult: Codable, Sendable {
         let round: Int
         let winner: String
         let seed: Int
     }
 
-    struct BattleSettings: Codable {
+    struct BattleSettings: Codable, Sendable {
         let coreSize: Int
         let maxCycles: Int
         let maxLength: Int

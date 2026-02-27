@@ -1,6 +1,6 @@
 import Foundation
 
-struct Player: Codable, Identifiable {
+struct Player: Codable, Identifiable, Sendable {
     let id: Int
     let name: String
     let rating: Double
@@ -9,7 +9,7 @@ struct Player: Codable, Identifiable {
     let ties: Int
     var warrior: PlayerWarrior?
 
-    struct PlayerWarrior: Codable {
+    struct PlayerWarrior: Codable, Sendable {
         let id: Int
         let name: String
         let redcode: String

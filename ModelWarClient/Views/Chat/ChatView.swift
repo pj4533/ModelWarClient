@@ -63,16 +63,12 @@ struct ChatView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+        inputText = ""
 
         if !appSession.agentSession.isConnected {
-            appSession.startAgent()
-            // Queue the message to send after connection
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                appSession.agentSession.sendMessage(text)
-            }
+            appSession.startAgent(pendingMessage: text)
         } else {
             appSession.agentSession.sendMessage(text)
         }
-        inputText = ""
     }
 }

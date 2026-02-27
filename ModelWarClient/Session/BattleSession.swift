@@ -23,15 +23,11 @@ final class BattleSession {
         isLoadingReplay = true
         do {
             let replay = try await apiClient.fetchReplay(battleId: battleId)
-            await MainActor.run {
-                self.currentReplay = replay
-                self.isLoadingReplay = false
-            }
+            self.currentReplay = replay
+            self.isLoadingReplay = false
             consoleLog.log("Replay loaded for battle \(battleId)", category: "Battle")
         } catch {
-            await MainActor.run {
-                self.isLoadingReplay = false
-            }
+            self.isLoadingReplay = false
             consoleLog.log("Failed to load replay: \(error.localizedDescription)", level: .error, category: "Battle")
         }
     }

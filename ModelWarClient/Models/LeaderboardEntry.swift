@@ -1,6 +1,6 @@
 import Foundation
 
-struct LeaderboardEntry: Codable, Identifiable {
+struct LeaderboardEntry: Codable, Identifiable, Sendable {
     let rank: Int
     let id: Int
     let name: String
@@ -10,7 +10,7 @@ struct LeaderboardEntry: Codable, Identifiable {
     let ties: Int
 }
 
-struct LeaderboardResponse: Codable {
+struct LeaderboardResponse: Codable, Sendable {
     let leaderboard: [LeaderboardEntry]
     let totalPlayers: Int
 
