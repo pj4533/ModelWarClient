@@ -7,15 +7,17 @@ Communicates with the Swift app via JSON lines over stdin/stdout.
 
 Protocol:
   Input (stdin):  {"command": "start_session"} | {"command": "user_message", "text": "..."} |
-                  {"command": "set_context", "api_key": "...", "warrior_code": "...", "recent_battle": "..."} |
+                  {"command": "set_context", "warrior_code": "...", "recent_battle": "..."} |
+                  {"command": "tool_response", "request_id": "...", "data": "...", "is_error": false} |
                   {"command": "shutdown"}
-  Output (stdout): JSON lines with type field (session_ready, agent_text, agent_tool_use, etc.)
+  Output (stdout): JSON lines with type field (session_ready, agent_text, agent_tool_use, tool_request, etc.)
 """
 
 import asyncio
 import json
 import signal
 import sys
+import uuid
 from typing import Any
 
 from claude_agent_sdk import (
@@ -28,6 +30,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
     ToolResultBlock,
 )
+
+from mcp.server import Server as MCPServer
+import mcp.types as mcp_types
 
 SYSTEM_PROMPT = """You are a Core War strategy expert and AI assistant integrated into ModelWarClient, a macOS IDE for modelwar.ai.
 
@@ -65,25 +70,20 @@ Addressing modes: # (immediate), $ (direct), @ (B-indirect), < (B-predecrement),
 - **Core clear**: Systematically zeroing out the entire core.
 - **Quick scan**: Fast initial scan before switching to main strategy.
 
-## ModelWar API
-You can perform API actions using curl with the user's API key. The API key will be provided via context.
+## Your Tools
+You have these tools to interact with modelwar.ai:
+- **upload_warrior(name, redcode)** — Upload a Redcode warrior. Returns warrior details including ID and instruction count.
+- **challenge_player(defender_id)** — Challenge a player by their ID. Returns battle results with wins, losses, ties, and rating changes.
+- **get_profile()** — Get your current profile, rating, and active warrior info.
+- **get_leaderboard()** — Get the top 100 players with ratings and records.
 
-Base URL: https://modelwar.ai/api
-
-Endpoints:
-- GET /api/me — Your profile (rating, wins, losses, warrior info)
-- POST /api/warriors — Upload warrior. Body: {"name": "...", "redcode": "..."}
-- POST /api/challenge — Challenge player. Body: {"defender_id": <id>}
-- GET /api/leaderboard — Top 100 players
-- GET /api/battles/<id>/replay — Battle replay data
-
-All authenticated endpoints require: -H "Authorization: Bearer <api_key>"
+Authentication is handled automatically — just call the tools directly. Do NOT use Bash or curl for API calls.
 
 ## Your Role
 1. Help users write competitive Redcode warriors
 2. Analyze opponents and suggest counter-strategies
 3. Research Core War strategies using WebSearch and WebFetch
-4. Execute API actions (upload warriors, challenge players, check leaderboard) when asked
+4. Execute API actions (upload warriors, challenge players, check leaderboard) using your tools
 5. Explain battle results and suggest improvements
 6. Go autonomous when asked — continuously improve warriors and battle
 
@@ -92,12 +92,97 @@ All authenticated endpoints require: -H "Authorization: Bearer <api_key>"
 - corewar-docs.readthedocs.io — ICWS '94 standard documentation
 - sal.discontinuity.info — Strategy Archive Library
 
-When the user asks you to do something with the API, use Bash with curl to make the request.
 When analyzing warriors, think about what archetype they are and what their weaknesses might be.
 """
 
-# Context that gets injected with API key and warrior code
+# Context that gets injected with warrior code
 current_context = ""
+
+# Pending tool requests awaiting Swift responses
+pending_requests: dict[str, asyncio.Future] = {}
+
+# --- MCP Server ---
+
+mcp_server = MCPServer("modelwar")
+
+
+@mcp_server.list_tools()
+async def list_tools() -> list[mcp_types.Tool]:
+    return [
+        mcp_types.Tool(
+            name="upload_warrior",
+            description="Upload a Redcode warrior to modelwar.ai. Returns the warrior details including ID and instruction count.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name for the warrior"},
+                    "redcode": {"type": "string", "description": "Redcode source code"},
+                },
+                "required": ["name", "redcode"],
+            },
+        ),
+        mcp_types.Tool(
+            name="challenge_player",
+            description="Challenge another player to a Core War battle. Returns battle results including wins, losses, ties, and rating changes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "defender_id": {"type": "integer", "description": "ID of the player to challenge"},
+                },
+                "required": ["defender_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="get_profile",
+            description="Get your current player profile including rating, win/loss record, and active warrior.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        mcp_types.Tool(
+            name="get_leaderboard",
+            description="Get the top 100 players on the modelwar.ai leaderboard with ratings and records.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+    ]
+
+
+@mcp_server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[mcp_types.TextContent]:
+    try:
+        result = await bridge_request(name, arguments)
+        return [mcp_types.TextContent(type="text", text=result)]
+    except asyncio.TimeoutError:
+        raise Exception(f"Tool request timed out: {name}")
+    except Exception as e:
+        raise Exception(f"Tool request failed: {e}")
+
+
+async def bridge_request(tool: str, arguments: dict) -> str:
+    """Send a tool request to Swift and await the response."""
+    request_id = str(uuid.uuid4())
+    loop = asyncio.get_event_loop()
+    future = loop.create_future()
+    pending_requests[request_id] = future
+
+    emit({
+        "type": "tool_request",
+        "request_id": request_id,
+        "tool": tool,
+        "arguments": arguments,
+    })
+
+    try:
+        return await asyncio.wait_for(future, timeout=30.0)
+    finally:
+        pending_requests.pop(request_id, None)
+
+
+# --- Helpers ---
 
 
 def emit(msg: dict[str, Any]) -> None:
@@ -236,11 +321,24 @@ async def main() -> None:
                         "preset": "claude_code",
                         "append": SYSTEM_PROMPT,
                     },
-                    allowed_tools=["Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch"],
-                    disallowed_tools=["Write", "Edit"],
+                    allowed_tools=[
+                        "Read", "Glob", "Grep", "WebFetch", "WebSearch",
+                        "mcp__modelwar__upload_warrior",
+                        "mcp__modelwar__challenge_player",
+                        "mcp__modelwar__get_profile",
+                        "mcp__modelwar__get_leaderboard",
+                    ],
+                    disallowed_tools=["Write", "Edit", "Bash"],
                     permission_mode="bypassPermissions",
                     setting_sources=["user"],
                     hooks={},
+                    mcp_servers={
+                        "modelwar": {
+                            "type": "sdk",
+                            "name": "modelwar",
+                            "instance": mcp_server,
+                        }
+                    },
                 )
 
                 client = ClaudeSDKClient(options=options)
@@ -280,13 +378,10 @@ async def main() -> None:
                     emit({"type": "error", "message": "No active session"})
 
             elif command == "set_context":
-                api_key = cmd.get("api_key", "")
                 warrior_code = cmd.get("warrior_code", "")
                 recent_battle = cmd.get("recent_battle", "")
 
                 parts = []
-                if api_key:
-                    parts.append(f"[Context] API Key for curl requests: {api_key}")
                 if warrior_code:
                     parts.append(f"[Context] Current warrior code in editor:\n```redcode\n{warrior_code}\n```")
                 if recent_battle:
@@ -294,6 +389,20 @@ async def main() -> None:
 
                 current_context = "\n".join(parts)
                 debug("Context updated")
+
+            elif command == "tool_response":
+                request_id = cmd.get("request_id")
+                if request_id and request_id in pending_requests:
+                    future = pending_requests[request_id]
+                    if not future.done():
+                        is_error = cmd.get("is_error", False)
+                        data = cmd.get("data", "")
+                        if is_error:
+                            future.set_exception(Exception(data))
+                        else:
+                            future.set_result(data)
+                else:
+                    debug(f"Unknown tool_response request_id: {request_id}")
 
             elif command == "shutdown":
                 if agent_task and not agent_task.done():

@@ -49,6 +49,13 @@ struct ChatBubble: View {
         case .thinking: return "brain"
         case .assistant: return "bubble.left"
         case .toolUse(let name):
+            switch mcpToolName(name) {
+            case "upload_warrior": return "arrow.up.doc"
+            case "challenge_player": return "figure.fencing"
+            case "get_profile": return "person.crop.circle"
+            case "get_leaderboard": return "trophy"
+            default: break
+            }
             if name == "WebSearch" { return "magnifyingglass" }
             if name == "WebFetch" { return "globe" }
             return "wrench"
@@ -71,7 +78,7 @@ struct ChatBubble: View {
         switch message.role {
         case .thinking: return "Thinking"
         case .assistant: return "Claude"
-        case .toolUse(let name): return name
+        case .toolUse(let name): return friendlyToolName(name)
         case .toolResult(let isError): return isError ? "Error" : "Result"
         case .user: return "You"
         }
@@ -105,5 +112,26 @@ struct ChatBubble: View {
         case .toolResult(let isError): return isError ? Color.red.opacity(0.08) : Color.green.opacity(0.05)
         case .user: return Color.purple.opacity(0.08)
         }
+    }
+
+    /// Strips `mcp__modelwar__` prefix from MCP tool names, returns nil if not an MCP tool
+    private func mcpToolName(_ name: String) -> String? {
+        let prefix = "mcp__modelwar__"
+        guard name.hasPrefix(prefix) else { return nil }
+        return String(name.dropFirst(prefix.count))
+    }
+
+    /// Returns a friendly display name for tools
+    private func friendlyToolName(_ name: String) -> String {
+        if let mcp = mcpToolName(name) {
+            switch mcp {
+            case "upload_warrior": return "Upload Warrior"
+            case "challenge_player": return "Challenge Player"
+            case "get_profile": return "Get Profile"
+            case "get_leaderboard": return "Get Leaderboard"
+            default: return mcp
+            }
+        }
+        return name
     }
 }

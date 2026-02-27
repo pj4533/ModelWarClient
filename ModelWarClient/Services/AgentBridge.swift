@@ -188,14 +188,17 @@ final class AgentBridge {
 enum BridgeCommand: Encodable {
     case startSession
     case userMessage(text: String)
-    case setContext(apiKey: String, warriorCode: String, recentBattle: String?)
+    case setContext(warriorCode: String, recentBattle: String?)
+    case toolResponse(requestId: String, data: String, isError: Bool)
     case shutdown
 
     enum CodingKeys: String, CodingKey {
         case command, text
-        case apiKey = "api_key"
         case warriorCode = "warrior_code"
         case recentBattle = "recent_battle"
+        case requestId = "request_id"
+        case data
+        case isError = "is_error"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -206,11 +209,15 @@ enum BridgeCommand: Encodable {
         case .userMessage(let text):
             try container.encode("user_message", forKey: .command)
             try container.encode(text, forKey: .text)
-        case .setContext(let apiKey, let warriorCode, let recentBattle):
+        case .setContext(let warriorCode, let recentBattle):
             try container.encode("set_context", forKey: .command)
-            try container.encode(apiKey, forKey: .apiKey)
             try container.encode(warriorCode, forKey: .warriorCode)
             try container.encodeIfPresent(recentBattle, forKey: .recentBattle)
+        case .toolResponse(let requestId, let data, let isError):
+            try container.encode("tool_response", forKey: .command)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(data, forKey: .data)
+            try container.encode(isError, forKey: .isError)
         case .shutdown:
             try container.encode("shutdown", forKey: .command)
         }
@@ -223,11 +230,14 @@ enum BridgeMessage: Decodable {
     case agentThinking(content: String)
     case agentToolUse(name: String, input: String)
     case agentToolResult(content: String, isError: Bool)
+    case toolRequest(requestId: String, tool: String, arguments: [String: AnyCodableValue])
     case turnEnded
     case error(String)
 
     enum CodingKeys: String, CodingKey {
         case type, content, name, input, isError, message, reason
+        case requestId = "request_id"
+        case tool, arguments
     }
 
     init(from decoder: Decoder) throws {
@@ -251,6 +261,11 @@ enum BridgeMessage: Decodable {
             let content = try container.decode(String.self, forKey: .content)
             let isError = (try? container.decode(Bool.self, forKey: .isError)) ?? false
             self = .agentToolResult(content: content, isError: isError)
+        case "tool_request":
+            let requestId = try container.decode(String.self, forKey: .requestId)
+            let tool = try container.decode(String.self, forKey: .tool)
+            let arguments = (try? container.decode([String: AnyCodableValue].self, forKey: .arguments)) ?? [:]
+            self = .toolRequest(requestId: requestId, tool: tool, arguments: arguments)
         case "turn_ended":
             self = .turnEnded
         case "error":
@@ -258,6 +273,46 @@ enum BridgeMessage: Decodable {
             self = .error(message)
         default:
             self = .error("Unknown message type: \(type)")
+        }
+    }
+}
+
+enum AnyCodableValue: Decodable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+
+    var stringValue: String {
+        switch self {
+        case .string(let s): return s
+        case .int(let i): return String(i)
+        case .double(let d): return String(d)
+        case .bool(let b): return String(b)
+        }
+    }
+
+    var intValue: Int? {
+        switch self {
+        case .int(let i): return i
+        case .double(let d): return Int(d)
+        case .string(let s): return Int(s)
+        case .bool: return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let intVal = try? container.decode(Int.self) {
+            self = .int(intVal)
+        } else if let doubleVal = try? container.decode(Double.self) {
+            self = .double(doubleVal)
+        } else if let boolVal = try? container.decode(Bool.self) {
+            self = .bool(boolVal)
+        } else if let stringVal = try? container.decode(String.self) {
+            self = .string(stringVal)
+        } else {
+            self = .string("")
         }
     }
 }

@@ -4,6 +4,8 @@ import Foundation
 final class AgentSession {
     var messages: [ChatMessage] = []
     var isConnected = false
+    var onReady: (() -> Void)?
+    var onToolRequest: ((String, String, [String: AnyCodableValue]) -> Void)?
 
     private let bridge = AgentBridge()
     private let consoleLog: ConsoleLog
@@ -24,12 +26,17 @@ final class AgentSession {
     func sendMessage(_ text: String) {
         messages.append(ChatMessage(role: .user, content: text))
         bridge.sendCommand(.userMessage(text: text))
-        consoleLog.log("User message sent", level: .debug, category: "Agent")
+        consoleLog.log("User: \(text)", category: "Chat")
     }
 
-    func setContext(apiKey: String, warriorCode: String, recentBattle: String? = nil) {
-        bridge.sendCommand(.setContext(apiKey: apiKey, warriorCode: warriorCode, recentBattle: recentBattle))
+    func setContext(warriorCode: String, recentBattle: String? = nil) {
+        bridge.sendCommand(.setContext(warriorCode: warriorCode, recentBattle: recentBattle))
         consoleLog.log("Context updated for agent", level: .debug, category: "Agent")
+    }
+
+    func sendToolResponse(requestId: String, data: String, isError: Bool = false) {
+        bridge.sendCommand(.toolResponse(requestId: requestId, data: data, isError: isError))
+        consoleLog.log("Tool response sent (error=\(isError))", level: .debug, category: "Agent")
     }
 
     func shutdown() {
@@ -43,6 +50,7 @@ final class AgentSession {
         case .sessionReady:
             isConnected = true
             consoleLog.log("Agent session ready", category: "Agent")
+            onReady?()
 
         case .agentText(let content):
             if let last = messages.last, last.role == .assistant, last.isStreaming {
@@ -67,8 +75,16 @@ final class AgentSession {
                 consoleLog.log("Tool error: \(content.prefix(100))", level: .warning, category: "Agent")
             }
 
+        case .toolRequest(let requestId, let tool, let arguments):
+            consoleLog.log("Tool request: \(tool)", level: .debug, category: "Agent")
+            onToolRequest?(requestId, tool, arguments)
+
         case .turnEnded:
             finalizeStreamingMessage()
+            // Log the final assistant message
+            if let last = messages.last, last.role == .assistant {
+                consoleLog.log("Agent: \(last.content)", category: "Chat")
+            }
             consoleLog.log("Agent turn ended", level: .debug, category: "Agent")
 
         case .error(let msg):
