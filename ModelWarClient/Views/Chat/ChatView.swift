@@ -37,8 +37,6 @@ struct ChatView: View {
     @State private var inputText = ""
     @State private var suggestions = pickSuggestions()
 
-    /// Throttle flag: when true, a pending scroll is already scheduled.
-    @State private var scrollScheduled = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -122,13 +120,10 @@ struct ChatView: View {
                         }
                         .padding(8)
                     }
+                    .defaultScrollAnchor(.bottom)
                     // Discrete event: new message added -- animate scroll
                     .onChange(of: appSession.agentSession.messages.count) {
                         scrollToBottom(proxy: proxy, animated: true)
-                    }
-                    // Streaming content update -- throttled, no animation
-                    .onChange(of: appSession.agentSession.messages.last?.content.count) {
-                        throttledScrollToBottom(proxy: proxy)
                     }
                     // Processing state changed -- animate scroll
                     .onChange(of: appSession.agentSession.isProcessing) {
@@ -167,19 +162,6 @@ struct ChatView: View {
             }
         } else {
             proxy.scrollTo("chat-bottom", anchor: .bottom)
-        }
-    }
-
-    /// Throttled scroll: coalesces rapid streaming updates into one animated
-    /// scroll every ~150ms, preventing compounding animation storms.
-    private func throttledScrollToBottom(proxy: ScrollViewProxy) {
-        guard !scrollScheduled else { return }
-        scrollScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo("chat-bottom", anchor: .bottom)
-            }
-            scrollScheduled = false
         }
     }
 
