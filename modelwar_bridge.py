@@ -31,6 +31,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     ToolResultBlock,
 )
+from claude_agent_sdk.types import StreamEvent
 
 from mcp.server import Server as MCPServer
 import mcp.types as mcp_types
@@ -296,6 +297,7 @@ async def run_agent(
     """Process messages from the Claude Agent SDK client."""
     debug("Listening for agent messages")
     msg_count = 0
+    streamed_text = False  # Track if we streamed text this turn
 
     try:
         async for message in client.receive_messages():
@@ -303,12 +305,46 @@ async def run_agent(
             msg_type = type(message).__name__
             debug(f"msg#{msg_count} type={msg_type}")
 
+            if isinstance(message, StreamEvent):
+                event = message.event
+                event_type = event.get("type")
+
+                if event_type == "content_block_start":
+                    cb = event.get("content_block", {})
+                    cb_type = cb.get("type")
+                    if cb_type == "tool_use":
+                        emit({"type": "stream_tool_start", "name": cb.get("name", "")})
+                    elif cb_type == "thinking":
+                        emit({"type": "stream_thinking_start"})
+                    elif cb_type == "text":
+                        emit({"type": "stream_text_start"})
+                        streamed_text = True
+
+                elif event_type == "content_block_delta":
+                    delta = event.get("delta", {})
+                    delta_type = delta.get("type")
+                    if delta_type == "text_delta":
+                        emit({"type": "stream_text_delta", "text": delta.get("text", "")})
+                    elif delta_type == "thinking_delta":
+                        emit({"type": "stream_thinking_delta", "text": delta.get("thinking", "")})
+
+                elif event_type == "content_block_stop":
+                    emit({"type": "stream_content_stop"})
+
+                continue  # Don't fall through to AssistantMessage handling
+
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
+                        # Skip if we already streamed text this turn
+                        if streamed_text:
+                            continue
                         if block.text.strip():
                             emit({"type": "agent_text", "content": block.text})
                     elif isinstance(block, ThinkingBlock):
+                        # Skip if streaming was active (thinking was streamed)
+                        if streamed_text:
+                            continue
                         emit({"type": "agent_thinking", "content": block.thinking})
                     elif isinstance(block, ToolUseBlock):
                         input_str = json.dumps(block.input) if block.input else ""
@@ -328,6 +364,7 @@ async def run_agent(
             elif isinstance(message, ResultMessage):
                 debug(f"ResultMessage received (is_error={message.is_error})")
                 query_active[0] = False
+                streamed_text = False  # Reset for next turn
                 if interrupt_flag[0]:
                     debug("Ignoring ResultMessage from interrupt")
                     interrupt_flag[0] = False
@@ -400,6 +437,7 @@ async def main() -> None:
                         "preset": "claude_code",
                         "append": SYSTEM_PROMPT,
                     },
+                    include_partial_messages=True,
                     allowed_tools=[
                         "Read", "Glob", "Grep", "WebFetch", "WebSearch",
                         "mcp__modelwar__upload_warrior",

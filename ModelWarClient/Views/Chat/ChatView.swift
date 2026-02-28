@@ -96,6 +96,11 @@ struct ChatView: View {
                                 ChatBubble(message: message)
                                     .id(message.id)
                             }
+                            if appSession.agentSession.isProcessing,
+                               !(appSession.agentSession.messages.last?.isStreaming ?? false) {
+                                TypingIndicator()
+                                    .id("typing-indicator")
+                            }
                             Color.clear
                                 .frame(height: 1)
                                 .id("chat-bottom")
@@ -103,6 +108,16 @@ struct ChatView: View {
                         .padding(8)
                     }
                     .onChange(of: appSession.agentSession.messages.count) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("chat-bottom", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: appSession.agentSession.messages.last?.content.count) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("chat-bottom", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: appSession.agentSession.isProcessing) {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo("chat-bottom", anchor: .bottom)
                         }

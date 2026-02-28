@@ -231,11 +231,17 @@ enum BridgeMessage: Decodable {
     case agentToolUse(name: String, input: String)
     case agentToolResult(content: String, isError: Bool)
     case toolRequest(requestId: String, tool: String, arguments: [String: AnyCodableValue])
+    case streamTextStart
+    case streamTextDelta(text: String)
+    case streamThinkingStart
+    case streamThinkingDelta(text: String)
+    case streamToolStart(name: String)
+    case streamContentStop
     case turnEnded
     case error(String)
 
     enum CodingKeys: String, CodingKey {
-        case type, content, name, input, isError, message, reason
+        case type, content, name, input, text, isError, message, reason
         case requestId, tool, arguments
     }
 
@@ -265,6 +271,21 @@ enum BridgeMessage: Decodable {
             let tool = try container.decode(String.self, forKey: .tool)
             let arguments = (try? container.decode([String: AnyCodableValue].self, forKey: .arguments)) ?? [:]
             self = .toolRequest(requestId: requestId, tool: tool, arguments: arguments)
+        case "stream_text_start":
+            self = .streamTextStart
+        case "stream_text_delta":
+            let text = (try? container.decode(String.self, forKey: .text)) ?? ""
+            self = .streamTextDelta(text: text)
+        case "stream_thinking_start":
+            self = .streamThinkingStart
+        case "stream_thinking_delta":
+            let text = (try? container.decode(String.self, forKey: .text)) ?? ""
+            self = .streamThinkingDelta(text: text)
+        case "stream_tool_start":
+            let name = (try? container.decode(String.self, forKey: .name)) ?? ""
+            self = .streamToolStart(name: name)
+        case "stream_content_stop":
+            self = .streamContentStop
         case "turn_ended":
             self = .turnEnded
         case "error":

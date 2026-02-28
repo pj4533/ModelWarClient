@@ -5,6 +5,7 @@ final class AgentSession {
     var messages: [ChatMessage] = []
     var isConnecting = false
     var isConnected = false
+    var isProcessing = false
     var onReady: (() -> Void)?
     var onToolRequest: ((String, String, [String: AnyCodableValue]) -> Void)?
 
@@ -26,6 +27,7 @@ final class AgentSession {
     }
 
     func sendMessage(_ text: String) {
+        isProcessing = true
         messages.append(ChatMessage(role: .user, content: text))
         bridge.sendCommand(.userMessage(text: text))
         consoleLog.log("User: \(text)", category: "Chat")
@@ -83,8 +85,38 @@ final class AgentSession {
             consoleLog.log("Tool request: \(tool)", level: .debug, category: "Agent")
             onToolRequest?(requestId, tool, arguments)
 
+        case .streamTextStart:
+            finalizeStreamingMessage()
+            messages.append(ChatMessage(role: .assistant, content: "", isStreaming: true))
+
+        case .streamTextDelta(let text):
+            if let lastIndex = messages.indices.last,
+               messages[lastIndex].role == .assistant,
+               messages[lastIndex].isStreaming {
+                messages[lastIndex].content += text
+            }
+
+        case .streamThinkingStart:
+            finalizeStreamingMessage()
+            messages.append(ChatMessage(role: .thinking, content: "", isStreaming: true))
+
+        case .streamThinkingDelta(let text):
+            if let lastIndex = messages.indices.last,
+               messages[lastIndex].role == .thinking,
+               messages[lastIndex].isStreaming {
+                messages[lastIndex].content += text
+            }
+
+        case .streamToolStart(let name):
+            finalizeStreamingMessage()
+            consoleLog.log("Tool use: \(name)", level: .debug, category: "Agent")
+
+        case .streamContentStop:
+            finalizeStreamingMessage()
+
         case .turnEnded:
             finalizeStreamingMessage()
+            isProcessing = false
             // Log the final assistant message
             if let last = messages.last, last.role == .assistant {
                 consoleLog.log("Agent: \(last.content)", category: "Chat")
@@ -93,6 +125,7 @@ final class AgentSession {
 
         case .error(let msg):
             isConnecting = false
+            isProcessing = false
             finalizeStreamingMessage()
             messages.append(ChatMessage(role: .assistant, content: "Error: \(msg)"))
             consoleLog.log("Agent error: \(msg)", level: .error, category: "Agent")
