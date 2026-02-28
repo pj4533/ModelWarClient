@@ -2,8 +2,20 @@ import SwiftUI
 
 struct ChatBubble: View {
     let message: ChatMessage
+    @State private var isExpanded = false
 
     var body: some View {
+        switch message.role {
+        case .toolUse, .toolResult:
+            toolBubble
+        default:
+            messageBubble
+        }
+    }
+
+    // MARK: - Standard message bubble (user, assistant, thinking)
+
+    private var messageBubble: some View {
         HStack(alignment: .top, spacing: 8) {
             if message.role == .user {
                 Spacer()
@@ -37,6 +49,237 @@ struct ChatBubble: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    // MARK: - Compact tool bubble
+
+    private var toolBubble: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header row — always visible
+            HStack(spacing: 6) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
+                    .frame(width: 16)
+                    .font(.caption)
+
+                Text(roleLabel)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(iconColor)
+
+                if let summary = toolSummary {
+                    Text("— " + summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Detail view — only when expanded
+            if isExpanded, let detail = toolDetail {
+                Divider()
+                    .padding(.vertical, 4)
+
+                Text(detail)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .lineLimit(nil)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(backgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture { isExpanded.toggle() }
+    }
+
+    // MARK: - Tool summary (collapsed one-liner)
+
+    private var toolSummary: String? {
+        switch message.role {
+        case .toolUse(let name):
+            return toolUseSummary(name: name, content: message.content)
+        case .toolResult:
+            return toolResultSummary(content: message.content)
+        default:
+            return nil
+        }
+    }
+
+    // MARK: - Tool detail (expanded content)
+
+    private var toolDetail: String? {
+        switch message.role {
+        case .toolUse(let name):
+            return toolUseDetail(name: name, content: message.content)
+        case .toolResult:
+            return toolResultDetail(content: message.content)
+        default:
+            return nil
+        }
+    }
+
+    // MARK: - Tool use summary per type
+
+    private func toolUseSummary(name: String, content: String) -> String? {
+        let json = parseJSON(content)
+
+        if let mcp = mcpToolName(name) {
+            switch mcp {
+            case "upload_warrior":
+                if let n = json?["name"] as? String { return "Uploading \"\(n)\"" }
+                return "Uploading warrior"
+            case "challenge_player":
+                if let id = json?["defender_id"] { return "Challenging player #\(id)" }
+                return "Challenging player"
+            case "get_profile":
+                return "Fetching profile..."
+            case "get_leaderboard":
+                return "Fetching leaderboard..."
+            default:
+                return nil
+            }
+        }
+
+        switch name {
+        case "WebFetch":
+            if let url = json?["url"] as? String { return compactURL(url) }
+        case "WebSearch":
+            if let q = json?["query"] as? String { return "\"\(q)\"" }
+        case "Read":
+            if let path = json?["file_path"] as? String { return shortPath(path) }
+        case "Glob":
+            if let pat = json?["pattern"] as? String { return "\"\(pat)\"" }
+        case "Grep":
+            var parts: [String] = []
+            if let pat = json?["pattern"] as? String { parts.append("\"\(pat)\"") }
+            if let path = json?["path"] as? String { parts.append("in \(shortPath(path))") }
+            if !parts.isEmpty { return parts.joined(separator: " ") }
+        default:
+            break
+        }
+
+        return nil
+    }
+
+    // MARK: - Tool use detail per type
+
+    private func toolUseDetail(name: String, content: String) -> String? {
+        let json = parseJSON(content)
+
+        if let mcp = mcpToolName(name) {
+            switch mcp {
+            case "upload_warrior":
+                if let code = json?["redcode"] as? String { return code }
+                return content
+            case "challenge_player":
+                if let id = json?["defender_id"] { return "Defender ID: \(id)" }
+                return nil
+            case "get_profile", "get_leaderboard":
+                return nil
+            default:
+                return content
+            }
+        }
+
+        switch name {
+        case "WebFetch":
+            var parts: [String] = []
+            if let url = json?["url"] as? String { parts.append("URL: \(url)") }
+            if let prompt = json?["prompt"] as? String { parts.append("Prompt: \(prompt)") }
+            return parts.isEmpty ? content : parts.joined(separator: "\n")
+        case "WebSearch":
+            return nil // summary already shows the query
+        case "Read":
+            if let path = json?["file_path"] as? String { return path }
+            return nil
+        case "Grep":
+            var parts: [String] = []
+            if let pat = json?["pattern"] as? String { parts.append("Pattern: \(pat)") }
+            if let path = json?["path"] as? String { parts.append("Path: \(path)") }
+            if let glob = json?["glob"] as? String { parts.append("Glob: \(glob)") }
+            return parts.isEmpty ? content : parts.joined(separator: "\n")
+        case "Glob":
+            if let pat = json?["pattern"] as? String { return "Pattern: \(pat)" }
+            return content
+        default:
+            return content
+        }
+    }
+
+    // MARK: - Tool result summary
+
+    private func toolResultSummary(content: String) -> String? {
+        // Try to parse as JSON for known result shapes
+        if let json = parseJSON(content) {
+            // Warrior upload result
+            if let name = json["name"] as? String, json["instruction_count"] != nil {
+                let count = json["instruction_count"]!
+                return "Warrior \"\(name)\" uploaded (\(count) instructions)"
+            }
+            // Battle result
+            if let result = json["result"] as? String {
+                return "Battle: \(result)"
+            }
+            // Profile
+            if let name = json["name"] as? String, json["elo"] != nil {
+                let elo = json["elo"]!
+                return "\(name) (ELO: \(elo))"
+            }
+            // Error in JSON
+            if let error = json["error"] as? String {
+                return error
+            }
+        }
+
+        // Plain text: truncate to ~80 chars
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count > 80 {
+            return String(trimmed.prefix(80)) + "..."
+        }
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    // MARK: - Tool result detail
+
+    private func toolResultDetail(content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only show detail if content is longer than the summary would be
+        guard trimmed.count > 80 else { return nil }
+        return trimmed
+    }
+
+    // MARK: - JSON parsing helper
+
+    private func parseJSON(_ string: String) -> [String: Any]? {
+        guard let data = string.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return obj
+    }
+
+    // MARK: - Path/URL helpers
+
+    private func compactURL(_ urlString: String) -> String {
+        guard let url = URL(string: urlString) else { return urlString }
+        let host = url.host ?? ""
+        let path = url.path
+        let compact = host + path
+        return compact.count > 50 ? String(compact.prefix(50)) + "..." : compact
+    }
+
+    private func shortPath(_ path: String) -> String {
+        (path as NSString).lastPathComponent
+    }
+
+    // MARK: - Shared styling properties
+
     private var roleIcon: some View {
         Image(systemName: iconName)
             .foregroundStyle(iconColor)
@@ -58,8 +301,11 @@ struct ChatBubble: View {
             }
             if name == "WebSearch" { return "magnifyingglass" }
             if name == "WebFetch" { return "globe" }
+            if name == "Read" { return "doc.text" }
+            if name == "Grep" { return "text.magnifyingglass" }
+            if name == "Glob" { return "folder.badge.magnifyingglass" } // NS: custom
             return "wrench"
-        case .toolResult: return "arrow.turn.down.left"
+        case .toolResult(let isError): return isError ? "xmark.circle" : "checkmark.circle"
         case .user: return "person"
         }
     }

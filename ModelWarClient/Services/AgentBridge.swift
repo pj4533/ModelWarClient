@@ -236,8 +236,7 @@ enum BridgeMessage: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case type, content, name, input, isError, message, reason
-        case requestId = "request_id"
-        case tool, arguments
+        case requestId, tool, arguments
     }
 
     init(from decoder: Decoder) throws {

@@ -17,6 +17,7 @@ import asyncio
 import json
 import signal
 import sys
+import threading
 import uuid
 from typing import Any
 
@@ -92,6 +93,15 @@ Authentication is handled automatically — just call the tools directly. Do NOT
 - corewar-docs.readthedocs.io — ICWS '94 standard documentation
 - sal.discontinuity.info — Strategy Archive Library
 
+## BLOCKED DOMAINS — DO NOT FETCH
+⚠️ CRITICAL: The following domains are known to hang indefinitely and will freeze the entire session.
+NEVER use WebFetch on these domains. If you need information from them, use WebSearch instead.
+
+- vyznev.net — ALWAYS hangs, NEVER fetch any URL from this domain
+- Any URL containing "vyznev.net" must be SKIPPED entirely
+
+If a search result links to vyznev.net, DO NOT follow the link. Summarize from the search snippet or find an alternative source.
+
 When analyzing warriors, think about what archetype they are and what their weaknesses might be.
 """
 
@@ -100,6 +110,12 @@ current_context = ""
 
 # Pending tool requests awaiting Swift responses
 pending_requests: dict[str, asyncio.Future] = {}
+
+# Async queue for commands from stdin thread
+command_queue: asyncio.Queue | None = None
+
+# Event loop reference for thread-safe operations
+main_loop: asyncio.AbstractEventLoop | None = None
 
 # --- MCP Server ---
 
@@ -153,12 +169,16 @@ async def list_tools() -> list[mcp_types.Tool]:
 
 @mcp_server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[mcp_types.TextContent]:
+    debug(f"MCP call_tool: {name} args={arguments}")
     try:
         result = await bridge_request(name, arguments)
+        debug(f"MCP call_tool result: {result[:100]}")
         return [mcp_types.TextContent(type="text", text=result)]
     except asyncio.TimeoutError:
+        debug(f"MCP call_tool TIMEOUT: {name}")
         raise Exception(f"Tool request timed out: {name}")
     except Exception as e:
+        debug(f"MCP call_tool ERROR: {name} — {e}")
         raise Exception(f"Tool request failed: {e}")
 
 
@@ -169,6 +189,7 @@ async def bridge_request(tool: str, arguments: dict) -> str:
     future = loop.create_future()
     pending_requests[request_id] = future
 
+    debug(f"bridge_request: emitting tool_request {request_id[:8]} for {tool}")
     emit({
         "type": "tool_request",
         "request_id": request_id,
@@ -177,9 +198,64 @@ async def bridge_request(tool: str, arguments: dict) -> str:
     })
 
     try:
-        return await asyncio.wait_for(future, timeout=30.0)
+        result = await asyncio.wait_for(future, timeout=30.0)
+        debug(f"bridge_request: resolved {request_id[:8]}")
+        return result
+    except asyncio.TimeoutError:
+        debug(f"bridge_request: TIMEOUT {request_id[:8]} — pending_requests has {len(pending_requests)} entries")
+        raise
     finally:
         pending_requests.pop(request_id, None)
+
+
+# --- Stdin Thread ---
+
+def _stdin_reader_thread(loop: asyncio.AbstractEventLoop) -> None:
+    """Read stdin in a dedicated thread so tool_response is always processed.
+
+    This runs independently of the asyncio event loop, ensuring that
+    tool_response commands are handled even when client.query() blocks
+    the event loop with synchronous subprocess I/O.
+    """
+    debug("stdin thread started")
+    try:
+        for raw_line in sys.stdin:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                cmd = json.loads(line)
+            except json.JSONDecodeError:
+                debug(f"stdin thread: invalid JSON: {line[:80]}")
+                continue
+
+            command = cmd.get("command")
+            debug(f"stdin thread: received command={command}")
+
+            if command == "tool_response":
+                # Resolve futures directly from thread (thread-safe)
+                request_id = cmd.get("request_id")
+                debug(f"stdin thread: tool_response for {request_id and request_id[:8]}")
+                if request_id and request_id in pending_requests:
+                    future = pending_requests[request_id]
+                    if not future.done():
+                        is_error = cmd.get("is_error", False)
+                        data = cmd.get("data", "")
+                        if is_error:
+                            loop.call_soon_threadsafe(future.set_exception, Exception(data))
+                        else:
+                            loop.call_soon_threadsafe(future.set_result, data)
+                        debug(f"stdin thread: resolved future {request_id[:8]}")
+                    else:
+                        debug(f"stdin thread: future already done {request_id[:8]}")
+                else:
+                    debug(f"stdin thread: unknown request_id {request_id}")
+            else:
+                # Queue other commands for async processing
+                asyncio.run_coroutine_threadsafe(command_queue.put(cmd), loop)
+    except Exception as e:
+        debug(f"stdin thread error: {e}")
+    debug("stdin thread exited")
 
 
 # --- Helpers ---
@@ -198,6 +274,19 @@ def debug(msg: str) -> None:
     sys.stderr.flush()
 
 
+def _extract_tool_result_content(block: ToolResultBlock) -> str:
+    """Extract text content from a ToolResultBlock."""
+    if isinstance(block.content, str):
+        return block.content
+    if isinstance(block.content, list):
+        parts = []
+        for item in block.content:
+            if isinstance(item, dict) and "text" in item:
+                parts.append(item["text"])
+        return "\n".join(parts)
+    return ""
+
+
 async def run_agent(
     client: ClaudeSDKClient,
     interrupt_flag: list[bool],
@@ -212,6 +301,7 @@ async def run_agent(
         async for message in client.receive_messages():
             msg_count += 1
             msg_type = type(message).__name__
+            debug(f"msg#{msg_count} type={msg_type}")
 
             if isinstance(message, AssistantMessage):
                 for block in message.content:
@@ -228,21 +318,12 @@ async def run_agent(
                             "input": input_str,
                         })
                     elif isinstance(block, ToolResultBlock):
-                        if block.is_error:
-                            content = ""
-                            if isinstance(block.content, str):
-                                content = block.content
-                            elif isinstance(block.content, list):
-                                parts = []
-                                for item in block.content:
-                                    if isinstance(item, dict) and "text" in item:
-                                        parts.append(item["text"])
-                                content = "\n".join(parts)
-                            emit({
-                                "type": "agent_tool_result",
-                                "content": content,
-                                "is_error": True,
-                            })
+                        content = _extract_tool_result_content(block)
+                        emit({
+                            "type": "agent_tool_result",
+                            "content": content,
+                            "is_error": block.is_error,
+                        })
 
             elif isinstance(message, ResultMessage):
                 debug(f"ResultMessage received (is_error={message.is_error})")
@@ -257,19 +338,18 @@ async def run_agent(
                     emit({"type": "turn_ended"})
                     continue
                 emit({"type": "turn_ended"})
-                # Don't return — keep listening for more interactions
                 continue
 
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        debug(f"Error: {e}")
+        debug(f"Error in run_agent: {e}")
         emit({"type": "error", "message": str(e)})
 
 
 async def main() -> None:
-    """Main loop: read commands from stdin, dispatch actions."""
-    global current_context
+    """Main loop: read commands from stdin thread queue, dispatch actions."""
+    global current_context, command_queue, main_loop
     running = True
     client: ClaudeSDKClient | None = None
     agent_task: asyncio.Task | None = None
@@ -277,7 +357,8 @@ async def main() -> None:
     user_message_flag: list[bool] = [False]
     query_active: list[bool] = [False]
 
-    loop = asyncio.get_event_loop()
+    main_loop = asyncio.get_event_loop()
+    command_queue = asyncio.Queue()
 
     def handle_signal(sig, frame):
         nonlocal running
@@ -288,27 +369,25 @@ async def main() -> None:
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    # Start stdin reader in a background thread so tool_response
+    # commands are always processed, even when client.query() blocks
+    stdin_thread = threading.Thread(
+        target=_stdin_reader_thread,
+        args=(main_loop,),
+        daemon=True,
+    )
+    stdin_thread.start()
 
     while running:
         try:
-            line = await reader.readline()
-            if not line:
-                break
-
-            line_str = line.decode().strip()
-            if not line_str:
-                continue
-
+            # Read commands from the queue (populated by stdin thread)
             try:
-                cmd = json.loads(line_str)
-            except json.JSONDecodeError:
-                emit({"type": "error", "message": f"Invalid JSON: {line_str}"})
+                cmd = await asyncio.wait_for(command_queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
                 continue
 
             command = cmd.get("command")
+            debug(f"main loop: processing command={command}")
 
             if command == "start_session":
                 if client:
@@ -373,7 +452,8 @@ async def main() -> None:
                         except Exception:
                             pass
                     query_active[0] = True
-                    await client.query(full_message)
+                    # Run as task so main loop stays free
+                    asyncio.create_task(client.query(full_message))
                 else:
                     emit({"type": "error", "message": "No active session"})
 
@@ -390,20 +470,6 @@ async def main() -> None:
                 current_context = "\n".join(parts)
                 debug("Context updated")
 
-            elif command == "tool_response":
-                request_id = cmd.get("request_id")
-                if request_id and request_id in pending_requests:
-                    future = pending_requests[request_id]
-                    if not future.done():
-                        is_error = cmd.get("is_error", False)
-                        data = cmd.get("data", "")
-                        if is_error:
-                            future.set_exception(Exception(data))
-                        else:
-                            future.set_result(data)
-                else:
-                    debug(f"Unknown tool_response request_id: {request_id}")
-
             elif command == "shutdown":
                 if agent_task and not agent_task.done():
                     agent_task.cancel()
@@ -419,6 +485,7 @@ async def main() -> None:
         except asyncio.CancelledError:
             break
         except Exception as e:
+            debug(f"main loop error: {e}")
             emit({"type": "error", "message": f"Bridge error: {str(e)}"})
 
     if client:
