@@ -60,6 +60,16 @@ final class AppSession {
         consoleLog.log("API key cleared", category: "Auth")
     }
 
+    func logout() {
+        agentSession.shutdown()
+        agentSession.messages.removeAll()
+        clearApiKey()
+        leaderboard = []
+        warriorCode = RedcodeTemplates.imp
+        warriorName = "MyWarrior"
+        consoleLog.log("Logged out — all state reset", category: "Auth")
+    }
+
     // MARK: - Profile
 
     func fetchProfile() {

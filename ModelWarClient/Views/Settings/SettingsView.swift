@@ -53,12 +53,6 @@ struct SettingsView: View {
                     appSession.setApiKey(apiKeyInput)
                 }
                 .disabled(apiKeyInput.isEmpty)
-
-                Button("Delete") {
-                    appSession.clearApiKey()
-                    apiKeyInput = ""
-                }
-                .foregroundStyle(.red)
             }
 
             if let player = appSession.player {
@@ -66,6 +60,13 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.green)
             }
+
+            Button("Logout") {
+                appSession.logout()
+                apiKeyInput = ""
+                dismiss()
+            }
+            .foregroundStyle(.red)
         }
     }
 
