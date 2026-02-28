@@ -127,7 +127,7 @@ struct ChatBubble: View {
     // MARK: - Tool use summary per type
 
     private func toolUseSummary(name: String, content: String) -> String? {
-        let json = parseJSON(content)
+        let json = message.parsedJSON
 
         if let mcp = mcpToolName(name) {
             switch mcp {
@@ -201,7 +201,7 @@ struct ChatBubble: View {
     // MARK: - Tool use detail per type
 
     private func toolUseDetail(name: String, content: String) -> String? {
-        let json = parseJSON(content)
+        let json = message.parsedJSON
 
         if let mcp = mcpToolName(name) {
             switch mcp {
@@ -263,8 +263,8 @@ struct ChatBubble: View {
     // MARK: - Tool result summary
 
     private func toolResultSummary(content: String) -> String? {
-        // Try to parse as JSON for known result shapes
-        if let json = parseJSON(content) {
+        // Use pre-parsed JSON for known result shapes
+        if let json = message.parsedJSON {
             // Warrior upload result
             if let name = json["name"] as? String, json["instruction_count"] != nil {
                 let count = json["instruction_count"]!
@@ -300,16 +300,6 @@ struct ChatBubble: View {
         // Only show detail if content is longer than the summary would be
         guard trimmed.count > 80 else { return nil }
         return trimmed
-    }
-
-    // MARK: - JSON parsing helper
-
-    private func parseJSON(_ string: String) -> [String: Any]? {
-        guard let data = string.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return obj
     }
 
     // MARK: - Path/URL helpers

@@ -26,11 +26,19 @@ private let suggestionPool = [
     "Build a warrior that beats bombers",
 ]
 
+/// Maximum number of messages rendered in the scroll view.
+/// Older messages beyond this window are not passed to ForEach,
+/// which bounds the diffing and layout cost.
+private let messageWindowSize = 200
+
 struct ChatView: View {
     @Bindable var appSession: AppSession
 
     @State private var inputText = ""
     @State private var suggestions = pickSuggestions()
+
+    /// Throttle flag: when true, a pending scroll is already scheduled.
+    @State private var scrollScheduled = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,7 +100,14 @@ struct ChatView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 8) {
-                            ForEach(appSession.agentSession.messages) { message in
+                            if appSession.agentSession.messages.count > messageWindowSize {
+                                Text("\(appSession.agentSession.messages.count - messageWindowSize) earlier messages")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.vertical, 4)
+                            }
+
+                            ForEach(visibleMessages) { message in
                                 ChatBubble(message: message)
                                     .id(message.id)
                             }
@@ -107,20 +122,17 @@ struct ChatView: View {
                         }
                         .padding(8)
                     }
+                    // Discrete event: new message added -- animate scroll
                     .onChange(of: appSession.agentSession.messages.count) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("chat-bottom", anchor: .bottom)
-                        }
+                        scrollToBottom(proxy: proxy, animated: true)
                     }
+                    // Streaming content update -- throttled, no animation
                     .onChange(of: appSession.agentSession.messages.last?.content.count) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("chat-bottom", anchor: .bottom)
-                        }
+                        throttledScrollToBottom(proxy: proxy)
                     }
+                    // Processing state changed -- animate scroll
                     .onChange(of: appSession.agentSession.isProcessing) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("chat-bottom", anchor: .bottom)
-                        }
+                        scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
             }
@@ -132,6 +144,46 @@ struct ChatView: View {
             }
         }
     }
+
+    // MARK: - Visible message window
+
+    /// Returns only the last `messageWindowSize` messages for rendering.
+    /// This bounds the ForEach diffing cost regardless of total message count.
+    private var visibleMessages: [ChatMessage] {
+        let all = appSession.agentSession.messages
+        if all.count <= messageWindowSize {
+            return all
+        }
+        return Array(all.suffix(messageWindowSize))
+    }
+
+    // MARK: - Scroll helpers
+
+    /// Immediately scroll to bottom. Used for discrete events (new message, processing state change).
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo("chat-bottom", anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo("chat-bottom", anchor: .bottom)
+        }
+    }
+
+    /// Throttled scroll: coalesces rapid streaming updates into one animated
+    /// scroll every ~150ms, preventing compounding animation storms.
+    private func throttledScrollToBottom(proxy: ScrollViewProxy) {
+        guard !scrollScheduled else { return }
+        scrollScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo("chat-bottom", anchor: .bottom)
+            }
+            scrollScheduled = false
+        }
+    }
+
+    // MARK: - Actions
 
     private func sendSuggestion(_ text: String) {
         inputText = ""
