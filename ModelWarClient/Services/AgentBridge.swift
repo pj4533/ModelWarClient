@@ -7,6 +7,7 @@ final class AgentBridge {
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
     private var readTask: Task<Void, Never>?
+    private var isShuttingDown = false
 
     var onMessage: ((BridgeMessage) -> Void)?
     var isRunning: Bool { process?.isRunning ?? false }
@@ -40,6 +41,7 @@ final class AgentBridge {
         process = nil
         stdinPipe = nil
         stdoutPipe = nil
+        isShuttingDown = false
 
         let pythonPath = "\(projectRoot)/.venv/bin/python3"
         let scriptPath = "\(projectRoot)/modelwar_bridge.py"
@@ -89,8 +91,16 @@ final class AgentBridge {
         process.terminationHandler = { [weak self] proc in
             AppLog.bridge.info("Bridge process terminated with status \(proc.terminationStatus)")
             Task { @MainActor in
+                guard let self else { return }
+                if self.isShuttingDown {
+                    // Expected shutdown, no error
+                    return
+                }
+                // Any unexpected termination (even status 0) is an error
                 if proc.terminationStatus != 0 {
-                    self?.onMessage?(.error("Bridge process exited with code \(proc.terminationStatus)"))
+                    self.onMessage?(.error("Bridge process crashed (exit code \(proc.terminationStatus))"))
+                } else {
+                    self.onMessage?(.error("Bridge process exited unexpectedly"))
                 }
             }
         }
@@ -157,6 +167,7 @@ final class AgentBridge {
 
     func shutdown() {
         AppLog.bridge.info("Shutting down bridge")
+        isShuttingDown = true
         sendCommand(.shutdown)
         readTask?.cancel()
         readTask = nil

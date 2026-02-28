@@ -456,8 +456,11 @@ async def run_agent(
     try:
         async for message in client.receive_messages():
             msg_count += 1
-            msg_type = type(message).__name__
-            debug(f"msg#{msg_count} type={msg_type}")
+            if msg_count % 50 == 0:
+                debug(f"msg#{msg_count} type={type(message).__name__} (heartbeat)")
+            else:
+                msg_type = type(message).__name__
+                debug(f"msg#{msg_count} type={msg_type}")
 
             if isinstance(message, StreamEvent):
                 event = message.event
@@ -534,11 +537,16 @@ async def run_agent(
                 continue
 
     except asyncio.CancelledError:
+        debug("run_agent: cancelled")
+        emit_log("Agent task cancelled", "warning")
         raise
     except Exception as e:
         debug(f"Error in run_agent: {e}")
         emit_log(f"Agent error: {e}", "error")
         emit({"type": "error", "message": str(e)})
+
+    debug(f"run_agent: exiting after {msg_count} messages")
+    emit_log(f"Agent message stream ended ({msg_count} messages)", "warning")
 
 
 async def main() -> None:
@@ -690,16 +698,19 @@ async def main() -> None:
                 running = False
 
         except asyncio.CancelledError:
+            debug("main loop: CancelledError, breaking")
             break
         except Exception as e:
             debug(f"main loop error: {e}")
             emit({"type": "error", "message": f"Bridge error: {str(e)}"})
 
+    debug(f"main loop exited (running={running})")
     if client:
         try:
             await client.disconnect()
         except Exception:
             pass
+    debug("bridge process exiting")
 
 
 if __name__ == "__main__":

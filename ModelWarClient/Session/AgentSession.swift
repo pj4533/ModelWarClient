@@ -134,6 +134,7 @@ final class AgentSession {
 
         case .error(let msg):
             isConnecting = false
+            isConnected = false
             isProcessing = false
             finalizeStreamingMessage()
             messages.append(ChatMessage(role: .assistant, content: "Error: \(msg)"))
