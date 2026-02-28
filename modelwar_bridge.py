@@ -18,6 +18,7 @@ import json
 import signal
 import sys
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -327,6 +328,7 @@ async def bridge_request(tool: str, arguments: dict) -> str:
     pending_requests[request_id] = future
 
     debug(f"bridge_request: emitting tool_request {request_id[:8]} for {tool}")
+    emit_log(f"Tool request: {tool}", "info")
     emit({
         "type": "tool_request",
         "request_id": request_id,
@@ -334,12 +336,17 @@ async def bridge_request(tool: str, arguments: dict) -> str:
         "arguments": arguments,
     })
 
+    t0 = time.monotonic()
     try:
         result = await asyncio.wait_for(future, timeout=30.0)
+        elapsed = time.monotonic() - t0
         debug(f"bridge_request: resolved {request_id[:8]}")
+        emit_log(f"Tool resolved: {tool} ({elapsed:.1f}s)", "debug")
         return result
     except asyncio.TimeoutError:
+        elapsed = time.monotonic() - t0
         debug(f"bridge_request: TIMEOUT {request_id[:8]} — pending_requests has {len(pending_requests)} entries")
+        emit_log(f"Tool TIMEOUT: {tool} after {elapsed:.1f}s", "error")
         raise
     finally:
         pending_requests.pop(request_id, None)
@@ -399,10 +406,21 @@ def _stdin_reader_thread(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def emit(msg: dict[str, Any]) -> None:
-    """Write a JSON message to stdout."""
-    line = json.dumps(msg)
-    sys.stdout.write(line + "\n")
+    """Write a JSON message to stdout with pipe health monitoring."""
+    line = json.dumps(msg) + "\n"
+    t0 = time.monotonic()
+    sys.stdout.write(line)
     sys.stdout.flush()
+    elapsed = time.monotonic() - t0
+    if elapsed > 0.1:
+        # Log to stderr since stdout is what's blocked
+        sys.stderr.write(f"[bridge] WARN: emit blocked for {elapsed:.2f}s\n")
+        sys.stderr.flush()
+
+
+def emit_log(message: str, level: str = "debug") -> None:
+    """Send a log message to the Swift Console view via stdout."""
+    emit({"type": "log", "message": message, "level": level})
 
 
 def debug(msg: str) -> None:
@@ -508,8 +526,10 @@ async def run_agent(
                 if user_message_flag[0]:
                     debug("User message answered, turn complete")
                     user_message_flag[0] = False
+                    emit_log("Turn ended", "debug")
                     emit({"type": "turn_ended"})
                     continue
+                emit_log("Turn ended", "debug")
                 emit({"type": "turn_ended"})
                 continue
 
@@ -517,6 +537,7 @@ async def run_agent(
         raise
     except Exception as e:
         debug(f"Error in run_agent: {e}")
+        emit_log(f"Agent error: {e}", "error")
         emit({"type": "error", "message": str(e)})
 
 
@@ -615,6 +636,7 @@ async def main() -> None:
                 await asyncio.sleep(0.1)
 
                 emit({"type": "session_ready"})
+                emit_log("Session started", "info")
                 debug("Session ready")
 
             elif command == "user_message":

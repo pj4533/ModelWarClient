@@ -110,8 +110,10 @@ final class AgentBridge {
             do {
                 for try await line in stream {
                     guard !Task.isCancelled else { break }
+                    // Parse JSON off main thread to avoid pipe buffer deadlock
+                    guard let message = self?.parseLine(line) else { continue }
                     await MainActor.run {
-                        self?.processLine(line)
+                        self?.onMessage?(message)
                     }
                 }
             } catch {
@@ -169,16 +171,17 @@ final class AgentBridge {
         }
     }
 
-    private func processLine(_ line: String) {
-        guard let data = line.data(using: .utf8) else { return }
+    /// Parse a JSON line into a BridgeMessage off the main thread.
+    private nonisolated func parseLine(_ line: String) -> BridgeMessage? {
+        guard let data = line.data(using: .utf8) else { return nil }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
 
         do {
-            let message = try decoder.decode(BridgeMessage.self, from: data)
-            onMessage?(message)
+            return try decoder.decode(BridgeMessage.self, from: data)
         } catch {
             AppLog.bridge.error("Failed to parse: \(line.prefix(200)) — \(error)")
+            return nil
         }
     }
 }
@@ -238,10 +241,11 @@ enum BridgeMessage: Decodable {
     case streamToolStart(name: String)
     case streamContentStop
     case turnEnded
+    case log(message: String, level: String)
     case error(String)
 
     enum CodingKeys: String, CodingKey {
-        case type, content, name, input, text, isError, message, reason
+        case type, content, name, input, text, isError, message, reason, level
         case requestId, tool, arguments
     }
 
@@ -288,6 +292,10 @@ enum BridgeMessage: Decodable {
             self = .streamContentStop
         case "turn_ended":
             self = .turnEnded
+        case "log":
+            let message = try container.decode(String.self, forKey: .message)
+            let level = (try? container.decode(String.self, forKey: .level)) ?? "debug"
+            self = .log(message: message, level: level)
         case "error":
             let message = try container.decode(String.self, forKey: .message)
             self = .error(message)

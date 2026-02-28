@@ -123,6 +123,15 @@ final class AgentSession {
             }
             consoleLog.log("Agent turn ended", level: .debug, category: "Agent")
 
+        case .log(let message, let level):
+            let logLevel: ConsoleLogLevel = switch level {
+            case "error": .error
+            case "warning": .warning
+            case "info": .info
+            default: .debug
+            }
+            consoleLog.log(message, level: logLevel, category: "Bridge")
+
         case .error(let msg):
             isConnecting = false
             isProcessing = false
