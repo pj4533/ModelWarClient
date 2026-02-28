@@ -7,7 +7,6 @@ final class AppSession {
     var warriorCode: String = RedcodeTemplates.imp
     var warriorName: String = "MyWarrior"
     var showingSettings = false
-    var showingLeaderboard = false
     var leaderboard: [LeaderboardEntry] = []
     var isLoading = false
     var isChallenging = false
@@ -15,11 +14,9 @@ final class AppSession {
 
     let consoleLog = ConsoleLog()
     let apiClient = APIClient()
-    private(set) var battleSession: BattleSession!
     private(set) var agentSession: AgentSession!
 
     init() {
-        battleSession = BattleSession(consoleLog: consoleLog)
         agentSession = AgentSession(consoleLog: consoleLog)
         loadApiKey()
     }
@@ -115,12 +112,9 @@ final class AppSession {
             do {
                 let result = try await apiClient.challenge(defenderId: defenderId)
                 self.isChallenging = false
-                self.battleSession.setBattle(result)
                 self.consoleLog.log("Challenge result: \(result.result) (\(result.challengerWins)-\(result.defenderWins)-\(result.ties))", category: "Battle")
                 self.fetchProfile()
-
-                // Load replay
-                await battleSession.loadReplay(battleId: result.battleId, apiClient: apiClient)
+                self.fetchLeaderboard()
 
                 // Sync context with agent after battle
                 let battleSummary = "Last battle: \(result.result) (\(result.challengerWins)W-\(result.defenderWins)L-\(result.ties)T)"
@@ -214,12 +208,9 @@ final class AppSession {
         let result = try await apiClient.challenge(defenderId: defenderId)
         isChallenging = false
 
-        battleSession.setBattle(result)
         consoleLog.log("Challenge result via agent: \(result.result) (\(result.challengerWins)-\(result.defenderWins)-\(result.ties))", category: "Battle")
         fetchProfile()
-
-        // Load replay
-        await battleSession.loadReplay(battleId: result.battleId, apiClient: apiClient)
+        fetchLeaderboard()
 
         // Sync context with battle result
         let battleSummary = "Last battle: \(result.result) (\(result.challengerWins)W-\(result.defenderWins)L-\(result.ties)T)"

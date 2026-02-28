@@ -4,12 +4,6 @@ import OSLog
 @Observable
 final class ConsoleLog {
     var entries: [ConsoleLogEntry] = []
-    var filterLevel: ConsoleLogLevel? = nil
-
-    var filteredEntries: [ConsoleLogEntry] {
-        guard let filterLevel else { return entries }
-        return entries.filter { $0.level == filterLevel }
-    }
 
     func log(_ message: String, level: ConsoleLogLevel = .info, category: String = "General") {
         let entry = ConsoleLogEntry(level: level, message: message, category: category)

@@ -2,21 +2,24 @@ import SwiftUI
 
 struct LeaderboardView: View {
     @Bindable var appSession: AppSession
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("Leaderboard")
-                    .font(.title2.bold())
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
                 Spacer()
-                Button("Refresh") {
+                Button {
                     appSession.fetchLeaderboard()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
                 }
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
+                .buttonStyle(.plain)
             }
-            .padding()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
 
             Divider()
 
@@ -52,19 +55,12 @@ struct LeaderboardView: View {
                         Text("\(Int(entry.rating))")
                             .monospacedDigit()
                     }
-                    .width(60)
-
-                    TableColumn("W/L/T") { entry in
-                        Text("\(entry.wins)/\(entry.losses)/\(entry.ties)")
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    .width(80)
+                    .width(50)
 
                     TableColumn("") { entry in
                         if !isCurrentPlayer(entry) {
                             Button("Challenge") {
                                 appSession.challenge(defenderId: entry.id)
-                                dismiss()
                             }
                             .disabled(appSession.isChallenging || appSession.apiKey == nil)
                             .buttonStyle(.bordered)
@@ -75,7 +71,6 @@ struct LeaderboardView: View {
                 }
             }
         }
-        .frame(width: 600, height: 500)
         .onAppear {
             if appSession.leaderboard.isEmpty {
                 appSession.fetchLeaderboard()

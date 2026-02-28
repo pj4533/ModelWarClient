@@ -15,13 +15,11 @@ struct IDELayout: View {
             }
             .frame(minWidth: 400)
 
-            // Right panel: Battle Display (top) + Console (bottom)
-            VSplitView {
-                battlePanel
-                    .frame(minHeight: 250)
+            // Right panel: Leaderboard (top) + Console (bottom)
+            VStack(spacing: 0) {
+                LeaderboardView(appSession: appSession)
 
                 ConsoleView(consoleLog: appSession.consoleLog)
-                    .frame(minHeight: 150)
             }
             .frame(minWidth: 400)
         }
@@ -42,10 +40,5 @@ struct IDELayout: View {
     @ViewBuilder
     private var chatPanel: some View {
         ChatView(appSession: appSession)
-    }
-
-    @ViewBuilder
-    private var battlePanel: some View {
-        BattleWebView(battleSession: appSession.battleSession)
     }
 }

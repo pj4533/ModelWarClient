@@ -22,12 +22,6 @@ struct ContentView: View {
 
                 ToolbarItemGroup {
                     Button {
-                        appSession.showingLeaderboard = true
-                    } label: {
-                        Label("Leaderboard", systemImage: "list.number")
-                    }
-
-                    Button {
                         appSession.showingSettings = true
                     } label: {
                         Label("Settings", systemImage: "gear")
@@ -36,9 +30,6 @@ struct ContentView: View {
             }
             .sheet(isPresented: $appSession.showingSettings) {
                 SettingsView(appSession: appSession)
-            }
-            .sheet(isPresented: $appSession.showingLeaderboard) {
-                LeaderboardView(appSession: appSession)
             }
             .onDisappear {
                 appSession.shutdown()
