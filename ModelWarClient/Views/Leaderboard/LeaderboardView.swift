@@ -42,6 +42,18 @@ struct LeaderboardView: View {
                         HStack {
                             Text(entry.name)
                                 .fontWeight(isCurrentPlayer(entry) ? .bold : .regular)
+                                .foregroundStyle(.blue)
+                                .underline()
+                                .onHover { hovering in
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                                .onTapGesture {
+                                    appSession.fetchPlayerProfile(id: entry.id)
+                                }
                             if isCurrentPlayer(entry) {
                                 Text("(you)")
                                     .font(.caption)
@@ -78,6 +90,9 @@ struct LeaderboardView: View {
         }
         .sheet(isPresented: $appSession.showingBattleResult) {
             BattleResultView(appSession: appSession)
+        }
+        .sheet(isPresented: $appSession.showingPlayerProfile) {
+            PlayerProfileView(appSession: appSession)
         }
     }
 

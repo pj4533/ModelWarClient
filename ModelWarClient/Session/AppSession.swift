@@ -15,6 +15,9 @@ final class AppSession {
     var lastChallengeResult: ChallengeResponse?
     var challengeReplay: BattleReplay?
     var challengeDefenderName = ""
+    var showingPlayerProfile = false
+    var selectedPlayerProfile: PlayerProfile?
+    var isLoadingPlayerProfile = false
 
     let consoleLog = ConsoleLog()
     let apiClient = APIClient()
@@ -149,6 +152,33 @@ final class AppSession {
         lastChallengeResult = nil
         challengeReplay = nil
         challengeDefenderName = ""
+    }
+
+    // MARK: - Player Profile
+
+    func fetchPlayerProfile(id: Int) {
+        selectedPlayerProfile = nil
+        isLoadingPlayerProfile = true
+        showingPlayerProfile = true
+
+        Task {
+            do {
+                let profile = try await apiClient.fetchPlayerProfile(id: id)
+                self.selectedPlayerProfile = profile
+                self.isLoadingPlayerProfile = false
+                self.consoleLog.log("Player profile loaded: \(profile.name)", category: "API")
+            } catch {
+                self.isLoadingPlayerProfile = false
+                self.showingPlayerProfile = false
+                self.consoleLog.log("Failed to load player profile: \(error.localizedDescription)", level: .error, category: "API")
+            }
+        }
+    }
+
+    func dismissPlayerProfile() {
+        showingPlayerProfile = false
+        selectedPlayerProfile = nil
+        isLoadingPlayerProfile = false
     }
 
     // MARK: - Agent

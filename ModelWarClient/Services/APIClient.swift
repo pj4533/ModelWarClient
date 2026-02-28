@@ -61,6 +61,13 @@ final class APIClient {
         return try decode(BattleReplay.self, from: jsonData, context: "fetchReplay")
     }
 
+    // MARK: - Player Profile
+
+    func fetchPlayerProfile(id: Int) async throws -> PlayerProfile {
+        let jsonData = try await getRawData(path: "/players/\(id)", authenticated: false)
+        return try decode(PlayerProfile.self, from: jsonData, context: "fetchPlayerProfile")
+    }
+
     // MARK: - Leaderboard
 
     func fetchLeaderboard() async throws -> LeaderboardResponse {
