@@ -11,6 +11,10 @@ final class AppSession {
     var isLoading = false
     var isChallenging = false
     var isUploading = false
+    var showingBattleResult = false
+    var lastChallengeResult: ChallengeResponse?
+    var challengeReplay: BattleReplay?
+    var challengeDefenderName = ""
 
     let consoleLog = ConsoleLog()
     let apiClient = APIClient()
@@ -105,13 +109,18 @@ final class AppSession {
 
     // MARK: - Challenge
 
-    func challenge(defenderId: Int) {
+    func challenge(defenderId: Int, defenderName: String = "") {
         isChallenging = true
+        challengeDefenderName = defenderName
+        lastChallengeResult = nil
+        challengeReplay = nil
+        showingBattleResult = true
 
         Task {
             do {
                 let result = try await apiClient.challenge(defenderId: defenderId)
                 self.isChallenging = false
+                self.lastChallengeResult = result
                 self.consoleLog.log("Challenge result: \(result.result) (\(result.challengerWins)-\(result.defenderWins)-\(result.ties))", category: "Battle")
                 self.fetchProfile()
                 self.fetchLeaderboard()
@@ -119,11 +128,27 @@ final class AppSession {
                 // Sync context with agent after battle
                 let battleSummary = "Last battle: \(result.result) (\(result.challengerWins)W-\(result.defenderWins)L-\(result.ties)T)"
                 self.syncAgentContext(recentBattle: battleSummary)
+
+                // Fetch replay data for round-by-round view
+                do {
+                    let replay = try await apiClient.fetchReplay(battleId: result.battleId)
+                    self.challengeReplay = replay
+                } catch {
+                    self.consoleLog.log("Failed to load replay: \(error.localizedDescription)", level: .error, category: "Battle")
+                }
             } catch {
                 self.isChallenging = false
+                self.showingBattleResult = false
                 self.consoleLog.log("Challenge failed: \(error.localizedDescription)", level: .error, category: "Battle")
             }
         }
+    }
+
+    func dismissBattleResult() {
+        showingBattleResult = false
+        lastChallengeResult = nil
+        challengeReplay = nil
+        challengeDefenderName = ""
     }
 
     // MARK: - Agent

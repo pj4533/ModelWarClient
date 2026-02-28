@@ -60,7 +60,7 @@ struct LeaderboardView: View {
                     TableColumn("") { entry in
                         if !isCurrentPlayer(entry) {
                             Button("Challenge") {
-                                appSession.challenge(defenderId: entry.id)
+                                appSession.challenge(defenderId: entry.id, defenderName: entry.name)
                             }
                             .disabled(appSession.isChallenging || appSession.apiKey == nil)
                             .buttonStyle(.bordered)
@@ -75,6 +75,9 @@ struct LeaderboardView: View {
             if appSession.leaderboard.isEmpty {
                 appSession.fetchLeaderboard()
             }
+        }
+        .sheet(isPresented: $appSession.showingBattleResult) {
+            BattleResultView(appSession: appSession)
         }
     }
 
