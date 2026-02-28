@@ -9,14 +9,19 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     if let player = appSession.player {
-                        HStack(spacing: 4) {
-                            Image(systemName: "person.fill")
-                            Text(player.name)
-                                .fontWeight(.medium)
-                            Text("(\(Int(player.rating)))")
-                                .foregroundStyle(.secondary)
+                        Button {
+                            appSession.fetchPlayerProfile(id: player.id)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "person.fill")
+                                Text(player.name)
+                                    .fontWeight(.medium)
+                                Text("(\(Int(player.rating)))")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 8)
                         }
-                        .font(.caption)
                     }
                 }
 
@@ -30,6 +35,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $appSession.showingSettings) {
                 SettingsView(appSession: appSession)
+            }
+            .sheet(isPresented: $appSession.showingPlayerProfile) {
+                PlayerProfileView(appSession: appSession)
             }
             .onDisappear {
                 appSession.shutdown()

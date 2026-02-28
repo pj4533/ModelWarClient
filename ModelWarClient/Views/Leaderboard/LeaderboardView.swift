@@ -91,9 +91,6 @@ struct LeaderboardView: View {
         .sheet(isPresented: $appSession.showingBattleResult) {
             BattleResultView(appSession: appSession)
         }
-        .sheet(isPresented: $appSession.showingPlayerProfile) {
-            PlayerProfileView(appSession: appSession)
-        }
     }
 
     private func isCurrentPlayer(_ entry: LeaderboardEntry) -> Bool {
