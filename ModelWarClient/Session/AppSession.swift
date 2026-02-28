@@ -26,6 +26,7 @@ final class AppSession {
     init() {
         agentSession = AgentSession(consoleLog: consoleLog)
         loadApiKey()
+        startAgent()
     }
 
     // MARK: - API Key Management

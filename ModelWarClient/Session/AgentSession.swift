@@ -3,6 +3,7 @@ import Foundation
 @Observable
 final class AgentSession {
     var messages: [ChatMessage] = []
+    var isConnecting = false
     var isConnected = false
     var onReady: (() -> Void)?
     var onToolRequest: ((String, String, [String: AnyCodableValue]) -> Void)?
@@ -18,6 +19,7 @@ final class AgentSession {
     }
 
     func start() {
+        isConnecting = true
         consoleLog.log("Starting agent bridge", category: "Agent")
         bridge.start()
         bridge.sendCommand(.startSession)
@@ -42,12 +44,14 @@ final class AgentSession {
     func shutdown() {
         consoleLog.log("Shutting down agent bridge", category: "Agent")
         bridge.shutdown()
+        isConnecting = false
         isConnected = false
     }
 
     private func handleMessage(_ message: BridgeMessage) {
         switch message {
         case .sessionReady:
+            isConnecting = false
             isConnected = true
             consoleLog.log("Agent session ready", category: "Agent")
             onReady?()
@@ -88,6 +92,7 @@ final class AgentSession {
             consoleLog.log("Agent turn ended", level: .debug, category: "Agent")
 
         case .error(let msg):
+            isConnecting = false
             finalizeStreamingMessage()
             messages.append(ChatMessage(role: .assistant, content: "Error: \(msg)"))
             consoleLog.log("Agent error: \(msg)", level: .error, category: "Agent")

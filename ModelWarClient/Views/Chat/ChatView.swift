@@ -14,17 +14,22 @@ struct ChatView: View {
 
                 Spacer()
 
-                if !appSession.agentSession.isConnected {
-                    Button {
-                        appSession.startAgent()
-                    } label: {
-                        Label("Connect", systemImage: "bolt")
-                            .font(.caption)
-                    }
-                } else {
+                if appSession.agentSession.isConnected {
                     Label("Connected", systemImage: "bolt.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
+                } else if appSession.agentSession.isConnecting {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Connecting")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label("Disconnected", systemImage: "bolt.slash")
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
             .padding(.horizontal, 8)
@@ -65,10 +70,11 @@ struct ChatView: View {
         guard !text.isEmpty else { return }
         inputText = ""
 
-        if !appSession.agentSession.isConnected {
-            appSession.startAgent(pendingMessage: text)
-        } else {
+        if appSession.agentSession.isConnected {
             appSession.agentSession.sendMessage(text)
+        } else {
+            // Reconnect with pending message if disconnected
+            appSession.startAgent(pendingMessage: text)
         }
     }
 }
