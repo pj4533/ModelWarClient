@@ -74,10 +74,27 @@ Addressing modes: # (immediate), $ (direct), @ (B-indirect), < (B-predecrement),
 
 ## Your Tools
 You have these tools to interact with modelwar.ai:
+
+### 1v1 Combat
 - **upload_warrior(name, redcode)** — Upload a Redcode warrior. Returns warrior details including ID and instruction count.
 - **challenge_player(defender_id)** — Challenge a player by their ID. Returns battle results with wins, losses, ties, and rating changes.
 - **get_profile()** — Get your current profile, rating, and active warrior info.
 - **get_leaderboard()** — Get the top 100 players with ratings and records.
+
+### Player & Battle Info
+- **get_player_profile(player_id)** — View a player's public profile, rating, warrior source, and recent battles.
+- **get_battle(battle_id)** — View a battle result with warrior Redcodes and rating changes.
+- **get_battle_replay(battle_id)** — Get replay data with per-round results and seeds.
+- **get_battles(page?, per_page?)** — View your battle history (paginated).
+- **get_player_battles(player_id, page?, per_page?)** — View a player's battle history.
+- **get_warrior(warrior_id)** — View warrior details including Redcode source.
+
+### Arena (10-player free-for-all)
+- **upload_arena_warrior(name, redcode, auto_join?)** — Upload an arena warrior (max 100 instructions).
+- **start_arena()** — Start a 10-player arena battle. Returns placements and rating changes.
+- **get_arena_leaderboard()** — Get arena rankings.
+- **get_arena(arena_id)** — View arena result with participants and scores.
+- **get_arena_replay(arena_id)** — Get arena replay data.
 
 Authentication is handled automatically — just call the tools directly. Do NOT use Bash or curl for API calls.
 
@@ -163,6 +180,125 @@ async def list_tools() -> list[mcp_types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {},
+            },
+        ),
+        mcp_types.Tool(
+            name="get_player_profile",
+            description="View a player's public profile including rating, win/loss record, warrior source code, and recent battles.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "ID of the player to look up"},
+                },
+                "required": ["player_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="get_battle",
+            description="View a battle result including warrior Redcodes and rating changes for both players.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "battle_id": {"type": "integer", "description": "ID of the battle"},
+                },
+                "required": ["battle_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="get_battle_replay",
+            description="Get battle replay data including warrior source code, per-round results with seeds, and engine settings.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "battle_id": {"type": "integer", "description": "ID of the battle"},
+                },
+                "required": ["battle_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="get_battles",
+            description="View your battle history (paginated). Returns recent battles with results and rating changes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page": {"type": "integer", "description": "Page number (default: 1)"},
+                    "per_page": {"type": "integer", "description": "Results per page (default: 20, max: 100)"},
+                },
+            },
+        ),
+        mcp_types.Tool(
+            name="get_player_battles",
+            description="View a player's battle history (paginated). Returns their recent battles with results.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "ID of the player"},
+                    "page": {"type": "integer", "description": "Page number (default: 1)"},
+                    "per_page": {"type": "integer", "description": "Results per page (default: 20, max: 100)"},
+                },
+                "required": ["player_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="get_warrior",
+            description="View warrior details including Redcode source code.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "warrior_id": {"type": "integer", "description": "ID of the warrior"},
+                },
+                "required": ["warrior_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="upload_arena_warrior",
+            description="Upload an arena warrior (max 100 instructions). Arena is a 10-player free-for-all format.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name for the arena warrior"},
+                    "redcode": {"type": "string", "description": "Redcode source code (max 100 instructions)"},
+                    "auto_join": {"type": "boolean", "description": "Whether to auto-join arenas (default: true)"},
+                },
+                "required": ["name", "redcode"],
+            },
+        ),
+        mcp_types.Tool(
+            name="start_arena",
+            description="Start a 10-player arena battle. Returns placements with scores and rating changes.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        mcp_types.Tool(
+            name="get_arena_leaderboard",
+            description="Get the arena leaderboard rankings.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        mcp_types.Tool(
+            name="get_arena",
+            description="View arena result including participants, placements, and scores.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "arena_id": {"type": "integer", "description": "ID of the arena"},
+                },
+                "required": ["arena_id"],
+            },
+        ),
+        mcp_types.Tool(
+            name="get_arena_replay",
+            description="Get arena replay data including warrior sources and per-round results with seeds.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "arena_id": {"type": "integer", "description": "ID of the arena"},
+                },
+                "required": ["arena_id"],
             },
         ),
     ]
@@ -444,6 +580,17 @@ async def main() -> None:
                         "mcp__modelwar__challenge_player",
                         "mcp__modelwar__get_profile",
                         "mcp__modelwar__get_leaderboard",
+                        "mcp__modelwar__get_player_profile",
+                        "mcp__modelwar__get_battle",
+                        "mcp__modelwar__get_battle_replay",
+                        "mcp__modelwar__get_battles",
+                        "mcp__modelwar__get_player_battles",
+                        "mcp__modelwar__get_warrior",
+                        "mcp__modelwar__upload_arena_warrior",
+                        "mcp__modelwar__start_arena",
+                        "mcp__modelwar__get_arena_leaderboard",
+                        "mcp__modelwar__get_arena",
+                        "mcp__modelwar__get_arena_replay",
                     ],
                     disallowed_tools=["Write", "Edit", "Bash"],
                     permission_mode="bypassPermissions",

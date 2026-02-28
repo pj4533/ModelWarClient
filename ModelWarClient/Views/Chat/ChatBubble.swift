@@ -141,6 +141,37 @@ struct ChatBubble: View {
                 return "Fetching profile..."
             case "get_leaderboard":
                 return "Fetching leaderboard..."
+            case "get_player_profile":
+                if let id = json?["player_id"] { return "Looking up player #\(id)" }
+                return "Looking up player..."
+            case "get_battle":
+                if let id = json?["battle_id"] { return "Loading battle #\(id)" }
+                return "Loading battle..."
+            case "get_battle_replay":
+                if let id = json?["battle_id"] { return "Loading replay for battle #\(id)" }
+                return "Loading replay..."
+            case "get_battles":
+                let page = json?["page"] ?? 1
+                return "Loading battle history (page \(page))"
+            case "get_player_battles":
+                if let id = json?["player_id"] { return "Loading battles for player #\(id)" }
+                return "Loading player battles..."
+            case "get_warrior":
+                if let id = json?["warrior_id"] { return "Loading warrior #\(id)" }
+                return "Loading warrior..."
+            case "upload_arena_warrior":
+                if let n = json?["name"] as? String { return "Uploading \"\(n)\"" }
+                return "Uploading arena warrior"
+            case "start_arena":
+                return "Starting arena battle..."
+            case "get_arena_leaderboard":
+                return "Fetching arena rankings..."
+            case "get_arena":
+                if let id = json?["arena_id"] { return "Loading arena #\(id)" }
+                return "Loading arena..."
+            case "get_arena_replay":
+                if let id = json?["arena_id"] { return "Loading replay for arena #\(id)" }
+                return "Loading arena replay..."
             default:
                 return nil
             }
@@ -177,10 +208,27 @@ struct ChatBubble: View {
             case "upload_warrior":
                 if let code = json?["redcode"] as? String { return code }
                 return content
+            case "upload_arena_warrior":
+                if let code = json?["redcode"] as? String { return code }
+                return content
             case "challenge_player":
                 if let id = json?["defender_id"] { return "Defender ID: \(id)" }
                 return nil
-            case "get_profile", "get_leaderboard":
+            case "get_profile", "get_leaderboard", "get_arena_leaderboard", "start_arena":
+                return nil
+            case "get_player_profile", "get_player_battles":
+                if let id = json?["player_id"] { return "Player ID: \(id)" }
+                return nil
+            case "get_battle", "get_battle_replay":
+                if let id = json?["battle_id"] { return "Battle ID: \(id)" }
+                return nil
+            case "get_battles":
+                return nil
+            case "get_warrior":
+                if let id = json?["warrior_id"] { return "Warrior ID: \(id)" }
+                return nil
+            case "get_arena", "get_arena_replay":
+                if let id = json?["arena_id"] { return "Arena ID: \(id)" }
                 return nil
             default:
                 return content
@@ -297,6 +345,17 @@ struct ChatBubble: View {
             case "challenge_player": return "figure.fencing"
             case "get_profile": return "person.crop.circle"
             case "get_leaderboard": return "trophy"
+            case "get_player_profile": return "person.text.rectangle"
+            case "get_battle": return "shield.lefthalf.filled"
+            case "get_battle_replay": return "play.circle"
+            case "get_battles": return "list.bullet.rectangle"
+            case "get_player_battles": return "list.bullet.rectangle"
+            case "get_warrior": return "doc.text.magnifyingglass"
+            case "upload_arena_warrior": return "arrow.up.doc"
+            case "start_arena": return "flag.checkered"
+            case "get_arena_leaderboard": return "trophy"
+            case "get_arena": return "flag.checkered"
+            case "get_arena_replay": return "play.circle"
             default: break
             }
             if name == "WebSearch" { return "magnifyingglass" }
@@ -375,6 +434,17 @@ struct ChatBubble: View {
             case "challenge_player": return "Challenge Player"
             case "get_profile": return "Get Profile"
             case "get_leaderboard": return "Get Leaderboard"
+            case "get_player_profile": return "Player Profile"
+            case "get_battle": return "Battle Details"
+            case "get_battle_replay": return "Battle Replay"
+            case "get_battles": return "Battle History"
+            case "get_player_battles": return "Player Battles"
+            case "get_warrior": return "Warrior Details"
+            case "upload_arena_warrior": return "Upload Arena Warrior"
+            case "start_arena": return "Start Arena"
+            case "get_arena_leaderboard": return "Arena Leaderboard"
+            case "get_arena": return "Arena Details"
+            case "get_arena_replay": return "Arena Replay"
             default: return mcp
             }
         }

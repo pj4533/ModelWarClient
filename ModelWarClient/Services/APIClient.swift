@@ -68,6 +68,49 @@ final class APIClient {
         return try decode(PlayerProfile.self, from: jsonData, context: "fetchPlayerProfile")
     }
 
+    // MARK: - Battles
+
+    func fetchBattle(id: Int) async throws -> Data {
+        try await getRawData(path: "/battles/\(id)", authenticated: false)
+    }
+
+    func fetchBattles(page: Int = 1, perPage: Int = 20) async throws -> Data {
+        try await getRawData(path: "/battles?page=\(page)&per_page=\(perPage)")
+    }
+
+    func fetchPlayerBattles(playerId: Int, page: Int = 1, perPage: Int = 20) async throws -> Data {
+        try await getRawData(path: "/players/\(playerId)/battles?page=\(page)&per_page=\(perPage)", authenticated: false)
+    }
+
+    // MARK: - Warriors
+
+    func fetchWarrior(id: Int) async throws -> Data {
+        try await getRawData(path: "/warriors/\(id)", authenticated: false)
+    }
+
+    // MARK: - Arena
+
+    func uploadArenaWarrior(name: String, redcode: String, autoJoin: Bool = true) async throws -> Data {
+        let body: [String: Any] = ["name": name, "redcode": redcode, "auto_join": autoJoin]
+        return try await postRawData(path: "/arena/warrior", body: body)
+    }
+
+    func startArena() async throws -> Data {
+        try await postRawData(path: "/arena/start", body: [:])
+    }
+
+    func fetchArenaLeaderboard() async throws -> Data {
+        try await getRawData(path: "/arena-leaderboard", authenticated: false)
+    }
+
+    func fetchArena(id: Int) async throws -> Data {
+        try await getRawData(path: "/arenas/\(id)", authenticated: false)
+    }
+
+    func fetchArenaReplay(id: Int) async throws -> Data {
+        try await getRawData(path: "/arenas/\(id)/replay", authenticated: false)
+    }
+
     // MARK: - Leaderboard
 
     func fetchLeaderboard() async throws -> LeaderboardResponse {

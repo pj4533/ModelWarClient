@@ -222,6 +222,28 @@ final class AppSession {
                     result = try await handleGetProfile()
                 case "get_leaderboard":
                     result = try await handleGetLeaderboard()
+                case "get_player_profile":
+                    result = try await handleGetPlayerProfile(arguments: arguments)
+                case "get_battle":
+                    result = try await handleGetBattle(arguments: arguments)
+                case "get_battle_replay":
+                    result = try await handleGetBattleReplay(arguments: arguments)
+                case "get_battles":
+                    result = try await handleGetBattles(arguments: arguments)
+                case "get_player_battles":
+                    result = try await handleGetPlayerBattles(arguments: arguments)
+                case "get_warrior":
+                    result = try await handleGetWarrior(arguments: arguments)
+                case "upload_arena_warrior":
+                    result = try await handleUploadArenaWarrior(arguments: arguments)
+                case "start_arena":
+                    result = try await handleStartArena()
+                case "get_arena_leaderboard":
+                    result = try await handleGetArenaLeaderboard()
+                case "get_arena":
+                    result = try await handleGetArena(arguments: arguments)
+                case "get_arena_replay":
+                    result = try await handleGetArenaReplay(arguments: arguments)
                 default:
                     agentSession.sendToolResponse(requestId: requestId, data: "Unknown tool: \(tool)", isError: true)
                     return
@@ -334,6 +356,105 @@ final class AppSession {
             "total_players": response.totalPlayers,
         ]
         return String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetPlayerProfile(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let playerId = arguments["player_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let profile = try await apiClient.fetchPlayerProfile(id: playerId)
+        consoleLog.log("Player profile loaded via agent: \(profile.name)", category: "API")
+        return String(data: try JSONEncoder().encode(profile), encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetBattle(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let battleId = arguments["battle_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let data = try await apiClient.fetchBattle(id: battleId)
+        consoleLog.log("Battle \(battleId) loaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetBattleReplay(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let battleId = arguments["battle_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let data = try await apiClient.fetchReplay(battleId: battleId)
+        consoleLog.log("Battle replay \(battleId) loaded via agent", category: "API")
+        return String(data: try JSONEncoder().encode(data), encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetBattles(arguments: [String: AnyCodableValue]) async throws -> String {
+        let page = arguments["page"]?.intValue ?? 1
+        let perPage = arguments["per_page"]?.intValue ?? 20
+        let data = try await apiClient.fetchBattles(page: page, perPage: perPage)
+        consoleLog.log("Battle history loaded via agent (page \(page))", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetPlayerBattles(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let playerId = arguments["player_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let page = arguments["page"]?.intValue ?? 1
+        let perPage = arguments["per_page"]?.intValue ?? 20
+        let data = try await apiClient.fetchPlayerBattles(playerId: playerId, page: page, perPage: perPage)
+        consoleLog.log("Player \(playerId) battles loaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetWarrior(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let warriorId = arguments["warrior_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let data = try await apiClient.fetchWarrior(id: warriorId)
+        consoleLog.log("Warrior \(warriorId) loaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleUploadArenaWarrior(arguments: [String: AnyCodableValue]) async throws -> String {
+        let name = arguments["name"]?.stringValue ?? "ArenaWarrior"
+        let redcode = arguments["redcode"]?.stringValue ?? ""
+        let autoJoin: Bool
+        if case .bool(let b) = arguments["auto_join"] {
+            autoJoin = b
+        } else {
+            autoJoin = true
+        }
+        let data = try await apiClient.uploadArenaWarrior(name: name, redcode: redcode, autoJoin: autoJoin)
+        consoleLog.log("Arena warrior '\(name)' uploaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleStartArena() async throws -> String {
+        let data = try await apiClient.startArena()
+        consoleLog.log("Arena started via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetArenaLeaderboard() async throws -> String {
+        let data = try await apiClient.fetchArenaLeaderboard()
+        consoleLog.log("Arena leaderboard loaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetArena(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let arenaId = arguments["arena_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let data = try await apiClient.fetchArena(id: arenaId)
+        consoleLog.log("Arena \(arenaId) loaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetArenaReplay(arguments: [String: AnyCodableValue]) async throws -> String {
+        guard let arenaId = arguments["arena_id"]?.intValue else {
+            throw APIError.invalidResponse
+        }
+        let data = try await apiClient.fetchArenaReplay(id: arenaId)
+        consoleLog.log("Arena replay \(arenaId) loaded via agent", category: "API")
+        return String(data: data, encoding: .utf8) ?? "{}"
     }
 
     func shutdown() {
