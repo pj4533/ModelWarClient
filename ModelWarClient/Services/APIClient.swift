@@ -113,8 +113,8 @@ final class APIClient {
 
     // MARK: - Leaderboard
 
-    func fetchLeaderboard() async throws -> LeaderboardResponse {
-        let jsonData = try await getRawData(path: "/leaderboard", authenticated: false)
+    func fetchLeaderboard(page: Int = 1, perPage: Int = 100) async throws -> LeaderboardResponse {
+        let jsonData = try await getRawData(path: "/leaderboard?page=\(page)&per_page=\(perPage)", authenticated: false)
         return try decode(LeaderboardResponse.self, from: jsonData, context: "fetchLeaderboard")
     }
 

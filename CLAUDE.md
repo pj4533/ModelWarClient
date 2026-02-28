@@ -35,7 +35,7 @@ Swift communicates with Claude Agent SDK via a Python subprocess over **stdin/st
 Tools: `upload_warrior`, `challenge_player`, `get_profile`, `get_leaderboard`, `get_player_profile`, `get_battle`, `get_battle_replay`, `get_battles`, `get_player_battles`, `get_warrior`, `upload_arena_warrior`, `start_arena`, `get_arena_leaderboard`, `get_arena`, `get_arena_replay`
 
 ### Key Services
-- **APIClient** (`Services/APIClient.swift`): `@MainActor` async wrapper for modelwar.ai REST API (`https://www.modelwar.ai/api`)
+- **APIClient** (`Services/APIClient.swift`): `@MainActor` async wrapper for modelwar.ai REST API (`https://www.modelwar.ai/api`). Full API spec at **https://modelwar.ai/openapi.json**.
 - **KeychainService** (`Services/KeychainService.swift`): API key persistence via Security framework
 
 ### UI Structure

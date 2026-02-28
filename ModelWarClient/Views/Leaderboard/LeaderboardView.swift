@@ -31,56 +31,60 @@ struct LeaderboardView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(appSession.leaderboard) {
-                    TableColumn("#") { entry in
-                        Text("\(entry.rank)")
-                            .monospacedDigit()
-                    }
-                    .width(30)
+                // Column header row
+                HStack(spacing: 0) {
+                    Text("#")
+                        .frame(width: 36, alignment: .leading)
+                    Text("Name")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Rating")
+                        .frame(width: 56, alignment: .trailing)
+                    Spacer()
+                        .frame(width: 80)
+                }
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 4)
 
-                    TableColumn("Name") { entry in
-                        HStack {
-                            Text(entry.name)
-                                .fontWeight(isCurrentPlayer(entry) ? .bold : .regular)
-                                .foregroundStyle(.blue)
-                                .underline()
-                                .onHover { hovering in
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                .onTapGesture {
-                                    appSession.fetchPlayerProfile(id: entry.id)
-                                }
-                            if isCurrentPlayer(entry) {
-                                Text("(you)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .width(min: 120)
+                Divider()
 
-                    TableColumn("Rating") { entry in
-                        Text("\(Int(entry.rating))")
-                            .monospacedDigit()
-                    }
-                    .width(50)
-
-                    TableColumn("") { entry in
-                        if !isCurrentPlayer(entry) {
-                            Button("Challenge") {
+                List {
+                    ForEach(appSession.leaderboard) { entry in
+                        LeaderboardRowView(
+                            entry: entry,
+                            isCurrentPlayer: isCurrentPlayer(entry),
+                            isChallengeDisabled: appSession.isChallenging || appSession.apiKey == nil,
+                            onTapName: {
+                                appSession.fetchPlayerProfile(id: entry.id)
+                            },
+                            onChallenge: {
                                 appSession.challenge(defenderId: entry.id, defenderName: entry.name)
                             }
-                            .disabled(appSession.isChallenging || appSession.apiKey == nil)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                        )
+                        .onAppear {
+                            let lastId = appSession.leaderboard.last?.id
+                            appSession.consoleLog.log("Row appeared: rank=\(entry.rank) id=\(entry.id), lastId=\(lastId ?? -1), match=\(entry.id == lastId)", level: .debug, category: "Leaderboard")
+                            if entry.id == lastId {
+                                appSession.consoleLog.log("Last row visible — triggering loadMore", category: "Leaderboard")
+                                appSession.loadMoreLeaderboard()
+                            }
                         }
                     }
-                    .width(80)
+
+                    if appSession.isLoadingMoreLeaderboard {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading more...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .listRowSeparator(.hidden)
+                    }
                 }
+                .listStyle(.plain)
             }
         }
         .onAppear {
@@ -95,5 +99,63 @@ struct LeaderboardView: View {
 
     private func isCurrentPlayer(_ entry: LeaderboardEntry) -> Bool {
         entry.id == appSession.player?.id
+    }
+}
+
+// MARK: - Row View
+
+private struct LeaderboardRowView: View {
+    let entry: LeaderboardEntry
+    let isCurrentPlayer: Bool
+    let isChallengeDisabled: Bool
+    let onTapName: () -> Void
+    let onChallenge: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text("\(entry.rank)")
+                .monospacedDigit()
+                .frame(width: 36, alignment: .leading)
+
+            HStack(spacing: 4) {
+                Text(entry.name)
+                    .fontWeight(isCurrentPlayer ? .bold : .regular)
+                    .foregroundStyle(.blue)
+                    .underline()
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .onTapGesture {
+                        onTapName()
+                    }
+                if isCurrentPlayer {
+                    Text("(you)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("\(Int(entry.rating))")
+                .monospacedDigit()
+                .frame(width: 56, alignment: .trailing)
+
+            if !isCurrentPlayer {
+                Button("Challenge") {
+                    onChallenge()
+                }
+                .disabled(isChallengeDisabled)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .frame(width: 80)
+            } else {
+                Spacer()
+                    .frame(width: 80)
+            }
+        }
     }
 }

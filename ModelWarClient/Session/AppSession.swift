@@ -8,6 +8,9 @@ final class AppSession {
     var warriorName: String = "MyWarrior"
     var showingSettings = false
     var leaderboard: [LeaderboardEntry] = []
+    var leaderboardPage = 1
+    var leaderboardHasMore = false
+    var isLoadingMoreLeaderboard = false
     var isLoading = false
     var isChallenging = false
     var isUploading = false
@@ -65,6 +68,8 @@ final class AppSession {
         agentSession.messages.removeAll()
         clearApiKey()
         leaderboard = []
+        leaderboardPage = 1
+        leaderboardHasMore = false
         warriorCode = RedcodeTemplates.imp
         warriorName = "MyWarrior"
         consoleLog.log("Logged out — all state reset", category: "Auth")
@@ -93,11 +98,37 @@ final class AppSession {
     func fetchLeaderboard() {
         Task {
             do {
-                let response = try await apiClient.fetchLeaderboard()
+                let response = try await apiClient.fetchLeaderboard(page: 1)
                 self.leaderboard = response.leaderboard
-                self.consoleLog.log("Leaderboard loaded: \(response.totalPlayers) players", category: "API")
+                self.leaderboardPage = 1
+                self.leaderboardHasMore = response.pagination.page < response.pagination.totalPages
+                self.consoleLog.log("Leaderboard loaded: \(response.totalPlayers) players, entries=\(response.leaderboard.count), page=\(response.pagination.page)/\(response.pagination.totalPages), hasMore=\(self.leaderboardHasMore)", category: "API")
             } catch {
                 consoleLog.log("Failed to load leaderboard: \(error.localizedDescription)", level: .error, category: "API")
+            }
+        }
+    }
+
+    func loadMoreLeaderboard() {
+        consoleLog.log("loadMoreLeaderboard called: hasMore=\(leaderboardHasMore), isLoading=\(isLoadingMoreLeaderboard), currentPage=\(leaderboardPage), entries=\(leaderboard.count)", category: "Leaderboard")
+        guard leaderboardHasMore, !isLoadingMoreLeaderboard else {
+            consoleLog.log("loadMoreLeaderboard: bailing out (hasMore=\(leaderboardHasMore), isLoading=\(isLoadingMoreLeaderboard))", level: .debug, category: "Leaderboard")
+            return
+        }
+        isLoadingMoreLeaderboard = true
+        let nextPage = leaderboardPage + 1
+
+        Task {
+            do {
+                let response = try await apiClient.fetchLeaderboard(page: nextPage)
+                self.leaderboard.append(contentsOf: response.leaderboard)
+                self.leaderboardPage = nextPage
+                self.leaderboardHasMore = response.pagination.page < response.pagination.totalPages
+                self.isLoadingMoreLeaderboard = false
+                self.consoleLog.log("Leaderboard page \(nextPage) loaded: \(response.leaderboard.count) new, \(self.leaderboard.count) total, page=\(response.pagination.page)/\(response.pagination.totalPages), hasMore=\(self.leaderboardHasMore)", category: "API")
+            } catch {
+                self.isLoadingMoreLeaderboard = false
+                consoleLog.log("Failed to load more leaderboard: \(error.localizedDescription)", level: .error, category: "API")
             }
         }
     }
