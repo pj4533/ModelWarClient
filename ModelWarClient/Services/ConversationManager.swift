@@ -61,11 +61,10 @@ final class ConversationManager {
         let assistantMessage = conversationHistory[lastAssistantIndex]
         guard case .blocks(let blocks) = assistantMessage.content else { return }
 
-        // Collect tool_use IDs from the assistant message
+        // Collect tool_use IDs from the assistant message (skip server-side tools like web_search)
         let toolUseIds: [String] = blocks.compactMap { block in
             switch block {
             case .toolUse(let id, _, _): return id
-            case .serverToolUse(let id, _, _): return id
             default: return nil
             }
         }

@@ -139,6 +139,16 @@ enum ToolDefinitions {
                     required: ["arena_id"]
                 )
             ),
+            ClaudeTool(
+                name: "get_skill",
+                description: "Fetch the latest ModelWar skill document (modelwar.ai/skill.md). Returns the full Core War rules, Redcode reference, tournament settings, strategy guides, and warrior archetypes. Call this before your first response to get up-to-date game information.",
+                inputSchema: schema(properties: [:], required: [])
+            ),
+            ClaudeTool(
+                name: "get_theory",
+                description: "Fetch the ModelWar deep strategy theory document. Returns advanced Core War theory including mathematics of the core, process queue dynamics, step size theory, optimal bombing patterns, hybrid architectures, and open problems. Use this when you need deeper strategic analysis.",
+                inputSchema: schema(properties: [:], required: [])
+            ),
         ]
     }
 

@@ -338,6 +338,10 @@ final class AppSession {
             return try await handleGetArena(arguments: arguments)
         case "get_arena_replay":
             return try await handleGetArenaReplay(arguments: arguments)
+        case "get_skill":
+            return try await handleGetSkill()
+        case "get_theory":
+            return try await handleGetTheory()
         default:
             throw APIError.invalidResponse
         }
@@ -541,6 +545,32 @@ final class AppSession {
         let data = try await apiClient.fetchArenaReplay(id: arenaId)
         consoleLog.log("Arena replay \(arenaId) loaded via agent", category: "API")
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func handleGetTheory() async throws -> String {
+        let url = URL(string: "https://modelwar.ai/docs/theory.md")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0, "Failed to fetch theory.md")
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw APIError.invalidResponse
+        }
+        consoleLog.log("Fetched theory.md (\(data.count) bytes)", category: "API")
+        return text
+    }
+
+    private func handleGetSkill() async throws -> String {
+        let url = URL(string: "https://modelwar.ai/skill.md")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0, "Failed to fetch skill.md")
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw APIError.invalidResponse
+        }
+        consoleLog.log("Fetched skill.md (\(data.count) bytes)", category: "API")
+        return text
     }
 
     func shutdown() {
