@@ -3,6 +3,13 @@ import Foundation
 @Observable
 final class AppSession {
     var apiKey: String?
+    var anthropicKey: String?
+    var selectedModel: String {
+        didSet {
+            UserDefaults.standard.set(selectedModel, forKey: "selectedModel")
+            agentSession?.setModel(selectedModel)
+        }
+    }
     var player: Player?
     var warriorCode: String = RedcodeTemplates.imp
     var warriorName: String = "MyWarrior"
@@ -11,7 +18,6 @@ final class AppSession {
     var leaderboardPage = 1
     var leaderboardHasMore = false
     var isLoadingMoreLeaderboard = false
-    var isLoading = false
     var isChallenging = false
     var isUploading = false
     var showingBattleResult = false
@@ -27,12 +33,14 @@ final class AppSession {
     private(set) var agentSession: AgentSession!
 
     init() {
+        selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? Constants.anthropicDefaultModel
         agentSession = AgentSession(consoleLog: consoleLog)
         loadApiKey()
+        loadAnthropicKey()
         startAgent()
     }
 
-    // MARK: - API Key Management
+    // MARK: - ModelWar API Key Management
 
     func loadApiKey() {
         if let key = KeychainService.load() {
@@ -63,10 +71,51 @@ final class AppSession {
         consoleLog.log("API key cleared", category: "Auth")
     }
 
+    // MARK: - Anthropic API Key Management
+
+    func loadAnthropicKey() {
+        if let key = KeychainService.load(
+            service: Constants.anthropicKeychainService,
+            account: Constants.anthropicKeychainAccount
+        ) {
+            anthropicKey = key
+            agentSession.claudeClient.setApiKey(key)
+            consoleLog.log("Anthropic API key loaded from Keychain", category: "Auth")
+        }
+    }
+
+    func setAnthropicKey(_ key: String) {
+        anthropicKey = key
+        _ = KeychainService.save(
+            apiKey: key,
+            service: Constants.anthropicKeychainService,
+            account: Constants.anthropicKeychainAccount
+        )
+        agentSession.claudeClient.setApiKey(key)
+        consoleLog.log("Anthropic API key saved", category: "Auth")
+
+        // Start agent if not already connected
+        if !agentSession.isConnected {
+            startAgent()
+        }
+    }
+
+    func clearAnthropicKey() {
+        anthropicKey = nil
+        agentSession.claudeClient.setApiKey(nil)
+        KeychainService.delete(
+            service: Constants.anthropicKeychainService,
+            account: Constants.anthropicKeychainAccount
+        )
+        agentSession.shutdown()
+        consoleLog.log("Anthropic API key cleared", category: "Auth")
+    }
+
     func logout() {
         agentSession.shutdown()
         agentSession.messages.removeAll()
         clearApiKey()
+        clearAnthropicKey()
         leaderboard = []
         leaderboardPage = 1
         leaderboardHasMore = false
@@ -170,11 +219,9 @@ final class AppSession {
                 self.fetchProfile()
                 self.fetchLeaderboard()
 
-                // Sync context with agent after battle
                 let battleSummary = "Last battle: \(result.result) (\(result.challengerWins)W-\(result.defenderWins)L-\(result.ties)T)"
                 self.syncAgentContext(recentBattle: battleSummary)
 
-                // Fetch replay data for round-by-round view
                 do {
                     let replay = try await apiClient.fetchReplay(battleId: result.battleId)
                     self.challengeReplay = replay
@@ -226,17 +273,26 @@ final class AppSession {
     // MARK: - Agent
 
     func startAgent(pendingMessage: String? = nil) {
-        agentSession.onReady = { [weak self] in
-            guard let self else { return }
-            self.syncAgentContext()
+        guard anthropicKey != nil else {
+            consoleLog.log("No Anthropic API key — agent not started", level: .debug, category: "Agent")
             if let pendingMessage {
-                self.agentSession.sendMessage(pendingMessage)
+                // Queue the message; it'll be sent once key is set and agent starts
+                consoleLog.log("Pending message queued: \(pendingMessage.prefix(60))", level: .debug, category: "Agent")
             }
+            return
         }
-        agentSession.onToolRequest = { [weak self] requestId, tool, arguments in
-            self?.handleToolRequest(requestId: requestId, tool: tool, arguments: arguments)
+
+        agentSession.toolExecutor = { [weak self] name, arguments in
+            guard let self else { throw APIError.notAuthenticated }
+            return try await self.handleTool(name: name, arguments: arguments)
         }
+        agentSession.setModel(selectedModel)
         agentSession.start()
+        syncAgentContext()
+
+        if let pendingMessage {
+            agentSession.sendMessage(pendingMessage)
+        }
     }
 
     func onWarriorCodeChanged() {
@@ -248,51 +304,42 @@ final class AppSession {
         agentSession.setContext(warriorCode: warriorCode, recentBattle: recentBattle)
     }
 
-    // MARK: - Tool Request Handling
+    // MARK: - Tool Handling
 
-    private func handleToolRequest(requestId: String, tool: String, arguments: [String: AnyCodableValue]) {
-        Task {
-            do {
-                let result: String
-                switch tool {
-                case "upload_warrior":
-                    result = try await handleUploadWarrior(arguments: arguments)
-                case "challenge_player":
-                    result = try await handleChallenge(arguments: arguments)
-                case "get_profile":
-                    result = try await handleGetProfile()
-                case "get_leaderboard":
-                    result = try await handleGetLeaderboard()
-                case "get_player_profile":
-                    result = try await handleGetPlayerProfile(arguments: arguments)
-                case "get_battle":
-                    result = try await handleGetBattle(arguments: arguments)
-                case "get_battle_replay":
-                    result = try await handleGetBattleReplay(arguments: arguments)
-                case "get_battles":
-                    result = try await handleGetBattles(arguments: arguments)
-                case "get_player_battles":
-                    result = try await handleGetPlayerBattles(arguments: arguments)
-                case "get_warrior":
-                    result = try await handleGetWarrior(arguments: arguments)
-                case "upload_arena_warrior":
-                    result = try await handleUploadArenaWarrior(arguments: arguments)
-                case "start_arena":
-                    result = try await handleStartArena()
-                case "get_arena_leaderboard":
-                    result = try await handleGetArenaLeaderboard()
-                case "get_arena":
-                    result = try await handleGetArena(arguments: arguments)
-                case "get_arena_replay":
-                    result = try await handleGetArenaReplay(arguments: arguments)
-                default:
-                    agentSession.sendToolResponse(requestId: requestId, data: "Unknown tool: \(tool)", isError: true)
-                    return
-                }
-                agentSession.sendToolResponse(requestId: requestId, data: result)
-            } catch {
-                agentSession.sendToolResponse(requestId: requestId, data: error.localizedDescription, isError: true)
-            }
+    private func handleTool(name: String, arguments: [String: AnyCodableValue]) async throws -> String {
+        switch name {
+        case "upload_warrior":
+            return try await handleUploadWarrior(arguments: arguments)
+        case "challenge_player":
+            return try await handleChallenge(arguments: arguments)
+        case "get_profile":
+            return try await handleGetProfile()
+        case "get_leaderboard":
+            return try await handleGetLeaderboard()
+        case "get_player_profile":
+            return try await handleGetPlayerProfile(arguments: arguments)
+        case "get_battle":
+            return try await handleGetBattle(arguments: arguments)
+        case "get_battle_replay":
+            return try await handleGetBattleReplay(arguments: arguments)
+        case "get_battles":
+            return try await handleGetBattles(arguments: arguments)
+        case "get_player_battles":
+            return try await handleGetPlayerBattles(arguments: arguments)
+        case "get_warrior":
+            return try await handleGetWarrior(arguments: arguments)
+        case "upload_arena_warrior":
+            return try await handleUploadArenaWarrior(arguments: arguments)
+        case "start_arena":
+            return try await handleStartArena()
+        case "get_arena_leaderboard":
+            return try await handleGetArenaLeaderboard()
+        case "get_arena":
+            return try await handleGetArena(arguments: arguments)
+        case "get_arena_replay":
+            return try await handleGetArenaReplay(arguments: arguments)
+        default:
+            throw APIError.invalidResponse
         }
     }
 
@@ -304,7 +351,6 @@ final class AppSession {
         let warrior = try await apiClient.uploadWarrior(name: name, redcode: redcode)
         isUploading = false
 
-        // Update local state
         self.warriorCode = redcode
         self.warriorName = name
         consoleLog.log("Warrior '\(warrior.name)' uploaded via agent (\(warrior.instructionCount ?? 0) instructions)", category: "API")
@@ -331,7 +377,6 @@ final class AppSession {
         fetchProfile()
         fetchLeaderboard()
 
-        // Sync context with battle result
         let battleSummary = "Last battle: \(result.result) (\(result.challengerWins)W-\(result.defenderWins)L-\(result.ties)T)"
         syncAgentContext(recentBattle: battleSummary)
 

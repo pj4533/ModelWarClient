@@ -47,18 +47,14 @@ struct ChatView: View {
 
                 Spacer()
 
-                if appSession.agentSession.isConnected {
-                    Label("Connected", systemImage: "bolt.fill")
+                if appSession.anthropicKey == nil {
+                    Label("No API Key", systemImage: "key")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if appSession.agentSession.isConnected {
+                    Label("Ready", systemImage: "bolt.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
-                } else if appSession.agentSession.isConnecting {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text("Connecting")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 } else {
                     Label("Disconnected", systemImage: "bolt.slash")
                         .font(.caption)
@@ -70,7 +66,23 @@ struct ChatView: View {
 
             Divider()
 
-            if appSession.agentSession.messages.isEmpty {
+            if appSession.anthropicKey == nil {
+                Spacer()
+                VStack(spacing: 12) {
+                    Image(systemName: "key.fill")
+                        .font(.title)
+                        .foregroundStyle(.secondary)
+                    Text("Add your Anthropic API key in Settings to chat with Claude")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Open Settings") {
+                        appSession.showingSettings = true
+                    }
+                }
+                .padding(.horizontal, 24)
+                Spacer()
+            } else if appSession.agentSession.messages.isEmpty {
                 Spacer()
                 VStack(spacing: 12) {
                     Text("Ask the agent anything about Core War")

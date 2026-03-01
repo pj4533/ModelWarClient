@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var apiKeyInput = ""
+    @State private var anthropicKeyInput = ""
     @State private var playerNameInput = ""
     @State private var isRegistering = false
     @State private var registrationError: String?
@@ -22,6 +23,14 @@ struct SettingsView: View {
 
             Divider()
 
+            anthropicKeySection
+
+            Divider()
+
+            modelPickerSection
+
+            Divider()
+
             registerSection
 
             Spacer()
@@ -33,16 +42,17 @@ struct SettingsView: View {
             }
         }
         .padding(24)
-        .frame(width: 450, height: 400)
+        .frame(width: 450, height: 560)
         .onAppear {
             apiKeyInput = appSession.apiKey ?? ""
+            anthropicKeyInput = appSession.anthropicKey ?? ""
         }
     }
 
     @ViewBuilder
     private var existingKeySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("API Key")
+            Text("ModelWar API Key")
                 .font(.headline)
 
             HStack {
@@ -64,6 +74,7 @@ struct SettingsView: View {
             Button("Logout") {
                 appSession.logout()
                 apiKeyInput = ""
+                anthropicKeyInput = ""
                 dismiss()
             }
             .foregroundStyle(.red)
@@ -73,7 +84,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var newKeySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("API Key")
+            Text("ModelWar API Key")
                 .font(.headline)
 
             Text("Enter your ModelWar API key, or register a new account below.")
@@ -89,6 +100,49 @@ struct SettingsView: View {
                 }
                 .disabled(apiKeyInput.isEmpty)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var anthropicKeySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Anthropic API Key")
+                .font(.headline)
+
+            Text("Required for the AI chat assistant. Get one at console.anthropic.com.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                SecureField("sk-ant-...", text: $anthropicKeyInput)
+                    .textFieldStyle(.roundedBorder)
+
+                Button("Save") {
+                    appSession.setAnthropicKey(anthropicKeyInput)
+                }
+                .disabled(anthropicKeyInput.isEmpty)
+            }
+
+            if appSession.anthropicKey != nil {
+                Label("Anthropic key configured", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelPickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Claude Model")
+                .font(.headline)
+
+            Picker("Model", selection: $appSession.selectedModel) {
+                ForEach(Constants.anthropicAvailableModels, id: \.id) { model in
+                    Text(model.label).tag(model.id)
+                }
+            }
+            .labelsHidden()
         }
     }
 

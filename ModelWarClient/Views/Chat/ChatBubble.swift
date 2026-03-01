@@ -129,73 +129,54 @@ struct ChatBubble: View {
     private func toolUseSummary(name: String, content: String) -> String? {
         let json = message.parsedJSON
 
-        if let mcp = mcpToolName(name) {
-            switch mcp {
-            case "upload_warrior":
-                if let n = json?["name"] as? String { return "Uploading \"\(n)\"" }
-                return "Uploading warrior"
-            case "challenge_player":
-                if let id = json?["defender_id"] { return "Challenging player #\(id)" }
-                return "Challenging player"
-            case "get_profile":
-                return "Fetching profile..."
-            case "get_leaderboard":
-                return "Fetching leaderboard..."
-            case "get_player_profile":
-                if let id = json?["player_id"] { return "Looking up player #\(id)" }
-                return "Looking up player..."
-            case "get_battle":
-                if let id = json?["battle_id"] { return "Loading battle #\(id)" }
-                return "Loading battle..."
-            case "get_battle_replay":
-                if let id = json?["battle_id"] { return "Loading replay for battle #\(id)" }
-                return "Loading replay..."
-            case "get_battles":
-                let page = json?["page"] ?? 1
-                return "Loading battle history (page \(page))"
-            case "get_player_battles":
-                if let id = json?["player_id"] { return "Loading battles for player #\(id)" }
-                return "Loading player battles..."
-            case "get_warrior":
-                if let id = json?["warrior_id"] { return "Loading warrior #\(id)" }
-                return "Loading warrior..."
-            case "upload_arena_warrior":
-                if let n = json?["name"] as? String { return "Uploading \"\(n)\"" }
-                return "Uploading arena warrior"
-            case "start_arena":
-                return "Starting arena battle..."
-            case "get_arena_leaderboard":
-                return "Fetching arena rankings..."
-            case "get_arena":
-                if let id = json?["arena_id"] { return "Loading arena #\(id)" }
-                return "Loading arena..."
-            case "get_arena_replay":
-                if let id = json?["arena_id"] { return "Loading replay for arena #\(id)" }
-                return "Loading arena replay..."
-            default:
-                return nil
-            }
-        }
-
         switch name {
-        case "WebFetch":
-            if let url = json?["url"] as? String { return compactURL(url) }
-        case "WebSearch":
+        case "upload_warrior":
+            if let n = json?["name"] as? String { return "Uploading \"\(n)\"" }
+            return "Uploading warrior"
+        case "challenge_player":
+            if let id = json?["defender_id"] { return "Challenging player #\(id)" }
+            return "Challenging player"
+        case "get_profile":
+            return "Fetching profile..."
+        case "get_leaderboard":
+            return "Fetching leaderboard..."
+        case "get_player_profile":
+            if let id = json?["player_id"] { return "Looking up player #\(id)" }
+            return "Looking up player..."
+        case "get_battle":
+            if let id = json?["battle_id"] { return "Loading battle #\(id)" }
+            return "Loading battle..."
+        case "get_battle_replay":
+            if let id = json?["battle_id"] { return "Loading replay for battle #\(id)" }
+            return "Loading replay..."
+        case "get_battles":
+            let page = json?["page"] ?? 1
+            return "Loading battle history (page \(page))"
+        case "get_player_battles":
+            if let id = json?["player_id"] { return "Loading battles for player #\(id)" }
+            return "Loading player battles..."
+        case "get_warrior":
+            if let id = json?["warrior_id"] { return "Loading warrior #\(id)" }
+            return "Loading warrior..."
+        case "upload_arena_warrior":
+            if let n = json?["name"] as? String { return "Uploading \"\(n)\"" }
+            return "Uploading arena warrior"
+        case "start_arena":
+            return "Starting arena battle..."
+        case "get_arena_leaderboard":
+            return "Fetching arena rankings..."
+        case "get_arena":
+            if let id = json?["arena_id"] { return "Loading arena #\(id)" }
+            return "Loading arena..."
+        case "get_arena_replay":
+            if let id = json?["arena_id"] { return "Loading replay for arena #\(id)" }
+            return "Loading arena replay..."
+        case "web_search":
             if let q = json?["query"] as? String { return "\"\(q)\"" }
-        case "Read":
-            if let path = json?["file_path"] as? String { return shortPath(path) }
-        case "Glob":
-            if let pat = json?["pattern"] as? String { return "\"\(pat)\"" }
-        case "Grep":
-            var parts: [String] = []
-            if let pat = json?["pattern"] as? String { parts.append("\"\(pat)\"") }
-            if let path = json?["path"] as? String { parts.append("in \(shortPath(path))") }
-            if !parts.isEmpty { return parts.joined(separator: " ") }
+            return "Searching..."
         default:
-            break
+            return nil
         }
-
-        return nil
     }
 
     // MARK: - Tool use detail per type
@@ -203,58 +184,31 @@ struct ChatBubble: View {
     private func toolUseDetail(name: String, content: String) -> String? {
         let json = message.parsedJSON
 
-        if let mcp = mcpToolName(name) {
-            switch mcp {
-            case "upload_warrior":
-                if let code = json?["redcode"] as? String { return code }
-                return content
-            case "upload_arena_warrior":
-                if let code = json?["redcode"] as? String { return code }
-                return content
-            case "challenge_player":
-                if let id = json?["defender_id"] { return "Defender ID: \(id)" }
-                return nil
-            case "get_profile", "get_leaderboard", "get_arena_leaderboard", "start_arena":
-                return nil
-            case "get_player_profile", "get_player_battles":
-                if let id = json?["player_id"] { return "Player ID: \(id)" }
-                return nil
-            case "get_battle", "get_battle_replay":
-                if let id = json?["battle_id"] { return "Battle ID: \(id)" }
-                return nil
-            case "get_battles":
-                return nil
-            case "get_warrior":
-                if let id = json?["warrior_id"] { return "Warrior ID: \(id)" }
-                return nil
-            case "get_arena", "get_arena_replay":
-                if let id = json?["arena_id"] { return "Arena ID: \(id)" }
-                return nil
-            default:
-                return content
-            }
-        }
-
         switch name {
-        case "WebFetch":
-            var parts: [String] = []
-            if let url = json?["url"] as? String { parts.append("URL: \(url)") }
-            if let prompt = json?["prompt"] as? String { parts.append("Prompt: \(prompt)") }
-            return parts.isEmpty ? content : parts.joined(separator: "\n")
-        case "WebSearch":
-            return nil // summary already shows the query
-        case "Read":
-            if let path = json?["file_path"] as? String { return path }
-            return nil
-        case "Grep":
-            var parts: [String] = []
-            if let pat = json?["pattern"] as? String { parts.append("Pattern: \(pat)") }
-            if let path = json?["path"] as? String { parts.append("Path: \(path)") }
-            if let glob = json?["glob"] as? String { parts.append("Glob: \(glob)") }
-            return parts.isEmpty ? content : parts.joined(separator: "\n")
-        case "Glob":
-            if let pat = json?["pattern"] as? String { return "Pattern: \(pat)" }
+        case "upload_warrior", "upload_arena_warrior":
+            if let code = json?["redcode"] as? String { return code }
             return content
+        case "challenge_player":
+            if let id = json?["defender_id"] { return "Defender ID: \(id)" }
+            return nil
+        case "get_profile", "get_leaderboard", "get_arena_leaderboard", "start_arena":
+            return nil
+        case "get_player_profile", "get_player_battles":
+            if let id = json?["player_id"] { return "Player ID: \(id)" }
+            return nil
+        case "get_battle", "get_battle_replay":
+            if let id = json?["battle_id"] { return "Battle ID: \(id)" }
+            return nil
+        case "get_battles":
+            return nil
+        case "get_warrior":
+            if let id = json?["warrior_id"] { return "Warrior ID: \(id)" }
+            return nil
+        case "get_arena", "get_arena_replay":
+            if let id = json?["arena_id"] { return "Arena ID: \(id)" }
+            return nil
+        case "web_search":
+            return nil
         default:
             return content
         }
@@ -263,29 +217,23 @@ struct ChatBubble: View {
     // MARK: - Tool result summary
 
     private func toolResultSummary(content: String) -> String? {
-        // Use pre-parsed JSON for known result shapes
         if let json = message.parsedJSON {
-            // Warrior upload result
             if let name = json["name"] as? String, json["instruction_count"] != nil {
                 let count = json["instruction_count"]!
                 return "Warrior \"\(name)\" uploaded (\(count) instructions)"
             }
-            // Battle result
             if let result = json["result"] as? String {
                 return "Battle: \(result)"
             }
-            // Profile
             if let name = json["name"] as? String, json["elo"] != nil {
                 let elo = json["elo"]!
                 return "\(name) (ELO: \(elo))"
             }
-            // Error in JSON
             if let error = json["error"] as? String {
                 return error
             }
         }
 
-        // Plain text: truncate to ~80 chars
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count > 80 {
             return String(trimmed.prefix(80)) + "..."
@@ -297,23 +245,8 @@ struct ChatBubble: View {
 
     private func toolResultDetail(content: String) -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only show detail if content is longer than the summary would be
         guard trimmed.count > 80 else { return nil }
         return trimmed
-    }
-
-    // MARK: - Path/URL helpers
-
-    private func compactURL(_ urlString: String) -> String {
-        guard let url = URL(string: urlString) else { return urlString }
-        let host = url.host ?? ""
-        let path = url.path
-        let compact = host + path
-        return compact.count > 50 ? String(compact.prefix(50)) + "..." : compact
-    }
-
-    private func shortPath(_ path: String) -> String {
-        (path as NSString).lastPathComponent
     }
 
     // MARK: - Shared styling properties
@@ -330,7 +263,7 @@ struct ChatBubble: View {
         case .thinking: return "brain"
         case .assistant: return "bubble.left"
         case .toolUse(let name):
-            switch mcpToolName(name) {
+            switch name {
             case "upload_warrior": return "arrow.up.doc"
             case "challenge_player": return "figure.fencing"
             case "get_profile": return "person.crop.circle"
@@ -346,14 +279,9 @@ struct ChatBubble: View {
             case "get_arena_leaderboard": return "trophy"
             case "get_arena": return "flag.checkered"
             case "get_arena_replay": return "play.circle"
-            default: break
+            case "web_search": return "magnifyingglass"
+            default: return "wrench"
             }
-            if name == "WebSearch" { return "magnifyingglass" }
-            if name == "WebFetch" { return "globe" }
-            if name == "Read" { return "doc.text" }
-            if name == "Grep" { return "text.magnifyingglass" }
-            if name == "Glob" { return "folder.badge.magnifyingglass" } // NS: custom
-            return "wrench"
         case .toolResult(let isError): return isError ? "xmark.circle" : "checkmark.circle"
         case .user: return "person"
         }
@@ -409,35 +337,26 @@ struct ChatBubble: View {
         }
     }
 
-    /// Strips `mcp__modelwar__` prefix from MCP tool names, returns nil if not an MCP tool
-    private func mcpToolName(_ name: String) -> String? {
-        let prefix = "mcp__modelwar__"
-        guard name.hasPrefix(prefix) else { return nil }
-        return String(name.dropFirst(prefix.count))
-    }
-
     /// Returns a friendly display name for tools
     private func friendlyToolName(_ name: String) -> String {
-        if let mcp = mcpToolName(name) {
-            switch mcp {
-            case "upload_warrior": return "Upload Warrior"
-            case "challenge_player": return "Challenge Player"
-            case "get_profile": return "Get Profile"
-            case "get_leaderboard": return "Get Leaderboard"
-            case "get_player_profile": return "Player Profile"
-            case "get_battle": return "Battle Details"
-            case "get_battle_replay": return "Battle Replay"
-            case "get_battles": return "Battle History"
-            case "get_player_battles": return "Player Battles"
-            case "get_warrior": return "Warrior Details"
-            case "upload_arena_warrior": return "Upload Arena Warrior"
-            case "start_arena": return "Start Arena"
-            case "get_arena_leaderboard": return "Arena Leaderboard"
-            case "get_arena": return "Arena Details"
-            case "get_arena_replay": return "Arena Replay"
-            default: return mcp
-            }
+        switch name {
+        case "upload_warrior": return "Upload Warrior"
+        case "challenge_player": return "Challenge Player"
+        case "get_profile": return "Get Profile"
+        case "get_leaderboard": return "Get Leaderboard"
+        case "get_player_profile": return "Player Profile"
+        case "get_battle": return "Battle Details"
+        case "get_battle_replay": return "Battle Replay"
+        case "get_battles": return "Battle History"
+        case "get_player_battles": return "Player Battles"
+        case "get_warrior": return "Warrior Details"
+        case "upload_arena_warrior": return "Upload Arena Warrior"
+        case "start_arena": return "Start Arena"
+        case "get_arena_leaderboard": return "Arena Leaderboard"
+        case "get_arena": return "Arena Details"
+        case "get_arena_replay": return "Arena Replay"
+        case "web_search": return "Web Search"
+        default: return name
         }
-        return name
     }
 }

@@ -3,143 +3,141 @@ import Foundation
 @Observable
 final class AgentSession {
     var messages: [ChatMessage] = []
-    var isConnecting = false
     var isConnected = false
     var isProcessing = false
-    var onReady: (() -> Void)?
-    var onToolRequest: ((String, String, [String: AnyCodableValue]) -> Void)?
 
-    private let bridge = AgentBridge()
+    /// Tool executor callback — AppSession sets this. Called with (toolName, arguments) → result string.
+    @ObservationIgnored
+    var toolExecutor: ((String, [String: AnyCodableValue]) async throws -> String)?
+
+    let claudeClient = ClaudeClient()
+    private var conversationManager: ConversationManager?
     private let consoleLog: ConsoleLog
+    private var streamingTask: Task<Void, Never>?
 
     init(consoleLog: ConsoleLog) {
         self.consoleLog = consoleLog
-        bridge.onMessage = { [weak self] message in
-            self?.handleMessage(message)
-        }
     }
 
     func start() {
-        isConnecting = true
-        consoleLog.log("Starting agent bridge", category: "Agent")
-        bridge.start()
-        bridge.sendCommand(.startSession)
-    }
+        guard claudeClient.hasApiKey else {
+            consoleLog.log("No Anthropic API key — agent not started", level: .debug, category: "Agent")
+            return
+        }
 
-    func sendMessage(_ text: String) {
-        isProcessing = true
-        messages.append(ChatMessage(role: .user, content: text))
-        bridge.sendCommand(.userMessage(text: text))
-        consoleLog.log("User: \(text)", category: "Chat")
-    }
-
-    func setContext(warriorCode: String, recentBattle: String? = nil) {
-        bridge.sendCommand(.setContext(warriorCode: warriorCode, recentBattle: recentBattle))
-        consoleLog.log("Context updated for agent", level: .debug, category: "Agent")
-    }
-
-    func sendToolResponse(requestId: String, data: String, isError: Bool = false) {
-        bridge.sendCommand(.toolResponse(requestId: requestId, data: data, isError: isError))
-        consoleLog.log("Tool response sent (error=\(isError))", level: .debug, category: "Agent")
-    }
-
-    func shutdown() {
-        consoleLog.log("Shutting down agent bridge", category: "Agent")
-        bridge.shutdown()
-        isConnecting = false
-        isConnected = false
-    }
-
-    private func handleMessage(_ message: BridgeMessage) {
-        switch message {
-        case .sessionReady:
-            isConnecting = false
-            isConnected = true
-            consoleLog.log("Agent session ready", category: "Agent")
-            onReady?()
-
-        case .agentText(let content):
-            if let last = messages.last, last.role == .assistant, last.isStreaming {
-                messages[messages.count - 1].content += content
-            } else {
-                finalizeStreamingMessage()
-                messages.append(ChatMessage(role: .assistant, content: content, isStreaming: true))
+        let manager = ConversationManager(claudeClient: claudeClient)
+        manager.toolExecutor = { [weak self] name, arguments in
+            guard let executor = self?.toolExecutor else {
+                throw ClaudeClientError.noApiKey
             }
+            return try await executor(name, arguments)
+        }
 
-        case .agentThinking(let content):
-            finalizeStreamingMessage()
-            messages.append(ChatMessage(role: .thinking, content: content))
+        // Wire up UI callbacks
+        manager.onStreamTextStart = { [weak self] in
+            self?.finalizeStreamingMessage()
+            self?.messages.append(ChatMessage(role: .assistant, content: "", isStreaming: true))
+        }
 
-        case .agentToolUse(let name, let input):
-            finalizeStreamingMessage()
-            messages.append(ChatMessage(role: .toolUse(name: name), content: input))
-            consoleLog.log("Tool use: \(name)", level: .debug, category: "Agent")
-
-        case .agentToolResult(let content, let isError):
-            messages.append(ChatMessage(role: .toolResult(isError: isError), content: content))
-            if isError {
-                consoleLog.log("Tool error: \(content.prefix(100))", level: .warning, category: "Agent")
-            }
-
-        case .toolRequest(let requestId, let tool, let arguments):
-            consoleLog.log("Tool request: \(tool)", level: .debug, category: "Agent")
-            onToolRequest?(requestId, tool, arguments)
-
-        case .streamTextStart:
-            finalizeStreamingMessage()
-            messages.append(ChatMessage(role: .assistant, content: "", isStreaming: true))
-
-        case .streamTextDelta(let text):
+        manager.onStreamTextDelta = { [weak self] text in
+            guard let self else { return }
             if let lastIndex = messages.indices.last,
                messages[lastIndex].role == .assistant,
                messages[lastIndex].isStreaming {
                 messages[lastIndex].content += text
             }
+        }
 
-        case .streamThinkingStart:
-            finalizeStreamingMessage()
-            messages.append(ChatMessage(role: .thinking, content: "", isStreaming: true))
+        manager.onStreamThinkingStart = { [weak self] in
+            self?.finalizeStreamingMessage()
+            self?.messages.append(ChatMessage(role: .thinking, content: "", isStreaming: true))
+        }
 
-        case .streamThinkingDelta(let text):
+        manager.onStreamThinkingDelta = { [weak self] text in
+            guard let self else { return }
             if let lastIndex = messages.indices.last,
                messages[lastIndex].role == .thinking,
                messages[lastIndex].isStreaming {
                 messages[lastIndex].content += text
             }
+        }
 
-        case .streamToolStart(let name):
-            finalizeStreamingMessage()
-            consoleLog.log("Tool use: \(name)", level: .debug, category: "Agent")
+        manager.onStreamToolStart = { [weak self] name in
+            self?.finalizeStreamingMessage()
+            self?.consoleLog.log("Tool use: \(name)", level: .debug, category: "Agent")
+        }
 
-        case .streamContentStop:
-            finalizeStreamingMessage()
+        manager.onContentBlockStop = { [weak self] in
+            self?.finalizeStreamingMessage()
+        }
 
-        case .turnEnded:
+        manager.onToolUse = { [weak self] name, input in
+            self?.finalizeStreamingMessage()
+            self?.messages.append(ChatMessage(role: .toolUse(name: name), content: input))
+            self?.consoleLog.log("Tool use: \(name)", level: .debug, category: "Agent")
+        }
+
+        manager.onToolResult = { [weak self] content, isError in
+            self?.messages.append(ChatMessage(role: .toolResult(isError: isError), content: content))
+            if isError {
+                self?.consoleLog.log("Tool error: \(content.prefix(100))", level: .warning, category: "Agent")
+            }
+        }
+
+        manager.onTurnEnded = { [weak self] in
+            guard let self else { return }
             finalizeStreamingMessage()
             isProcessing = false
-            // Log the final assistant message
             if let last = messages.last, last.role == .assistant {
                 consoleLog.log("Agent: \(last.content)", category: "Chat")
             }
             consoleLog.log("Agent turn ended", level: .debug, category: "Agent")
+        }
 
-        case .log(let message, let level):
-            let logLevel: ConsoleLogLevel = switch level {
-            case "error": .error
-            case "warning": .warning
-            case "info": .info
-            default: .debug
-            }
-            consoleLog.log(message, level: logLevel, category: "Bridge")
-
-        case .error(let msg):
-            isConnecting = false
-            isConnected = false
+        manager.onError = { [weak self] message in
+            guard let self else { return }
             isProcessing = false
             finalizeStreamingMessage()
-            messages.append(ChatMessage(role: .assistant, content: "Error: \(msg)"))
-            consoleLog.log("Agent error: \(msg)", level: .error, category: "Agent")
+            messages.append(ChatMessage(role: .assistant, content: "Error: \(message)"))
+            consoleLog.log("Agent error: \(message)", level: .error, category: "Agent")
         }
+
+        self.conversationManager = manager
+        isConnected = true
+        consoleLog.log("Agent session ready (direct API)", category: "Agent")
+    }
+
+    func sendMessage(_ text: String) {
+        guard let conversationManager else {
+            consoleLog.log("Cannot send — no active session", level: .error, category: "Agent")
+            return
+        }
+
+        isProcessing = true
+        messages.append(ChatMessage(role: .user, content: text))
+        consoleLog.log("User: \(text)", category: "Chat")
+
+        streamingTask = Task {
+            await conversationManager.sendMessage(text)
+        }
+    }
+
+    func setContext(warriorCode: String, recentBattle: String? = nil) {
+        conversationManager?.warriorContext = warriorCode
+        conversationManager?.recentBattle = recentBattle
+        consoleLog.log("Context updated for agent", level: .debug, category: "Agent")
+    }
+
+    func setModel(_ model: String) {
+        conversationManager?.model = model
+    }
+
+    func shutdown() {
+        consoleLog.log("Shutting down agent session", category: "Agent")
+        streamingTask?.cancel()
+        streamingTask = nil
+        conversationManager = nil
+        isConnected = false
     }
 
     private func finalizeStreamingMessage() {

@@ -17,26 +17,30 @@ macOS SwiftUI IDE client for [modelwar.ai](https://www.modelwar.ai) — a Core W
 ## Architecture
 
 ### Observable State Pattern
-- **AppSession** (`Session/AppSession.swift`): Central `@Observable` coordinator — API key, player profile, warrior code, leaderboard, tool request handling. This is the heart of the app.
-- **AgentSession** (`Session/AgentSession.swift`): Manages bridge lifecycle, chat message array, streaming state.
+- **AppSession** (`Session/AppSession.swift`): Central `@Observable` coordinator — API keys (ModelWar + Anthropic), player profile, warrior code, leaderboard, tool handling. This is the heart of the app.
+- **AgentSession** (`Session/AgentSession.swift`): Manages ConversationManager lifecycle, chat message array, streaming state.
 - **ConsoleLog** (`Session/ConsoleLog.swift`): Observable log collector with levels and categories.
 
-### Python Bridge (Critical Path)
-Swift communicates with Claude Agent SDK via a Python subprocess over **stdin/stdout JSON lines**:
-- **AgentBridge** (`Services/AgentBridge.swift`): Spawns `.venv/bin/python3 modelwar_bridge.py`, manages Process/Pipe lifecycle, serializes `BridgeCommand` → JSON, deserializes JSON → `BridgeMessage`.
-- **modelwar_bridge.py** (project root): Claude Agent SDK client, MCP tool definitions, session management. ~684 lines.
-- Protocol: snake_case JSON lines. Swift sends commands (`user_message`, `set_context`, `tool_response`). Python sends events (`agent_text`, `stream_text_delta`, `tool_request`, `turn_ended`).
+### Claude API Integration (Direct HTTPS)
+The app makes direct HTTPS calls to the Anthropic Messages API — no Python subprocess or bridge needed:
+- **ClaudeClient** (`Services/ClaudeClient.swift`): HTTP client with SSE streaming parser. Uses `URLSession.AsyncBytes` for server-sent events.
+- **ConversationManager** (`Services/ConversationManager.swift`): Agentic tool loop. Manages conversation history, streams responses, and executes tool calls inline via async/await.
+- **ToolDefinitions** (`Services/ToolDefinitions.swift`): All 16 ModelWar tool schemas + built-in web search tool.
+- **SystemPrompt** (`Services/SystemPrompt.swift`): Core War expert system prompt.
 
-### Tool Request Cycle
-1. Agent calls a tool → Python sends `tool_request` with `request_id` to Swift
-2. `AppSession.handleToolRequest()` dispatches to the appropriate API call
-3. Swift responds via `agentSession.sendToolResponse()` → Python receives and continues
+### Tool Execution Cycle
+1. ConversationManager streams API response, accumulates tool_use content blocks
+2. On `stop_reason == "tool_use"`, executes each tool via `toolExecutor` callback
+3. `AppSession.handleTool()` dispatches to the appropriate API call and returns result
+4. ConversationManager appends tool results to history and loops back to API
 
 Tools: `upload_warrior`, `challenge_player`, `get_profile`, `get_leaderboard`, `get_player_profile`, `get_battle`, `get_battle_replay`, `get_battles`, `get_player_battles`, `get_warrior`, `upload_arena_warrior`, `start_arena`, `get_arena_leaderboard`, `get_arena`, `get_arena_replay`
 
+Web search is handled by Anthropic's built-in `web_search_20250305` tool (server-side, no client execution needed).
+
 ### Key Services
 - **APIClient** (`Services/APIClient.swift`): `@MainActor` async wrapper for modelwar.ai REST API (`https://www.modelwar.ai/api`). Full API spec at **https://modelwar.ai/openapi.json**.
-- **KeychainService** (`Services/KeychainService.swift`): API key persistence via Security framework
+- **KeychainService** (`Services/KeychainService.swift`): API key persistence via Security framework (parameterized for ModelWar + Anthropic keys)
 
 ### UI Structure
 - **IDELayout**: HSplitView + VSplitView for resizable 4-panel desktop layout
@@ -48,8 +52,8 @@ Tools: `upload_warrior`, `challenge_player`, `get_profile`, `get_leaderboard`, `
 
 New Swift files in `ModelWarClient/` are auto-discovered (Xcode 16 `PBXFileSystemSynchronizedRootGroup`). Key directories:
 - `Session/` — Observable state coordinators
-- `Services/` — API client, bridge, keychain
-- `Models/` — Codable data structures
+- `Services/` — API clients (Claude + ModelWar), conversation manager, keychain
+- `Models/` — Codable data structures (including Anthropic API types in `ClaudeAPI.swift`)
 - `Views/` — SwiftUI views organized by feature (Chat/, Editor/, Battle/, Console/, Leaderboard/, etc.)
 - `Utils/` — Constants, Logger (OSLog), RedcodeTemplates
 
@@ -57,18 +61,16 @@ New Swift files in `ModelWarClient/` are auto-discovered (Xcode 16 `PBXFileSyste
 
 **Swift**: No external packages — SwiftUI, Foundation, Security, AppKit, WebKit, OSLog only.
 
-**Python** (`requirements.txt`): `claude-agent-sdk`, `mcp`. Virtual env at `.venv/`.
-
 ## Configuration
 
-- App sandbox is **disabled** (required for Python subprocess)
-- API base URL and Core War constants in `Utils/Constants.swift`
+- App sandbox is **enabled** with `com.apple.security.network.client` entitlement
+- API base URLs and constants in `Utils/Constants.swift`
+- Anthropic API key stored in Keychain, model selection persisted via UserDefaults
 - Core War params must match server: core size 8000, max cycles 80000, 100 rounds
 
 ## Adding a New Tool
 
-1. Add tool definition in `modelwar_bridge.py` → `list_tools()`
-2. Add handler in `modelwar_bridge.py` → `tool_use()` function
-3. Add case in `AppSession.handleToolRequest()` switch
-4. Add API method in `APIClient` if needed
-5. Optionally add display name/icon in `ChatBubble.swift`
+1. Add tool definition in `Services/ToolDefinitions.swift` → `modelWarTools` array
+2. Add case in `AppSession.handleTool()` switch
+3. Add API method in `APIClient` if needed
+4. Optionally add display name/icon in `ChatBubble.swift`
