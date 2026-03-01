@@ -23,7 +23,7 @@ struct ChatBubble: View {
                     Text(roleLabel)
                         .font(.caption)
                         .foregroundStyle(roleLabelColor)
-                    Text(message.content)
+                    contentText
                         .font(contentFont)
                         .foregroundStyle(contentColor)
                         .textSelection(.enabled)
@@ -35,7 +35,7 @@ struct ChatBubble: View {
                     Text(roleLabel)
                         .font(.caption)
                         .foregroundStyle(roleLabelColor)
-                    Text(message.content)
+                    contentText
                         .font(contentFont)
                         .foregroundStyle(contentColor)
                         .textSelection(.enabled)
@@ -321,6 +321,17 @@ struct ChatBubble: View {
             }
             return trimmed
         }
+    }
+
+    // MARK: - Markdown rendering
+
+    /// Renders markdown for assistant messages, plain text for everything else.
+    private var contentText: Text {
+        if message.role == .assistant,
+           let md = try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full)) {
+            return Text(md)
+        }
+        return Text(message.content)
     }
 
     // MARK: - Shared styling properties
