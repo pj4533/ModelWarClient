@@ -326,12 +326,18 @@ struct ChatBubble: View {
     // MARK: - Markdown rendering
 
     /// Renders markdown for assistant messages, plain text for everything else.
+    /// Uses .inlineOnlyPreservingWhitespace to keep the original line breaks
+    /// while rendering bold, italic, code, and links.
     private var contentText: Text {
-        if message.role == .assistant,
-           let md = try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full)) {
-            return Text(md)
+        switch message.role {
+        case .assistant, .thinking:
+            if let md = try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+                return Text(md)
+            }
+            return Text(message.content)
+        default:
+            return Text(message.content)
         }
-        return Text(message.content)
     }
 
     // MARK: - Shared styling properties
