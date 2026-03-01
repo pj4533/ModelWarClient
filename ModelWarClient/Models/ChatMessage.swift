@@ -4,7 +4,7 @@ enum ChatMessageRole: Equatable {
     case thinking
     case assistant
     case toolUse(name: String)
-    case toolResult(isError: Bool)
+    case toolResult(name: String, isError: Bool)
     case user
 }
 

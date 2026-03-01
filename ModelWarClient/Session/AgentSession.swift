@@ -25,6 +25,10 @@ final class AgentSession {
             return
         }
 
+        claudeClient.onDiagnosticLog = { [weak self] message in
+            self?.consoleLog.log(message, level: .debug, category: "Claude")
+        }
+
         let manager = ConversationManager(claudeClient: claudeClient)
         manager.toolExecutor = { [weak self] name, arguments in
             guard let executor = self?.toolExecutor else {
@@ -77,8 +81,8 @@ final class AgentSession {
             self?.consoleLog.log("Tool use: \(name)", level: .debug, category: "Agent")
         }
 
-        manager.onToolResult = { [weak self] content, isError in
-            self?.messages.append(ChatMessage(role: .toolResult(isError: isError), content: content))
+        manager.onToolResult = { [weak self] name, content, isError in
+            self?.messages.append(ChatMessage(role: .toolResult(name: name, isError: isError), content: content))
             if isError {
                 self?.consoleLog.log("Tool error: \(content.prefix(100))", level: .warning, category: "Agent")
             }
@@ -102,6 +106,10 @@ final class AgentSession {
             consoleLog.log("Agent error: \(message)", level: .error, category: "Agent")
         }
 
+        manager.onDiagnosticLog = { [weak self] message in
+            self?.consoleLog.log(message, level: .debug, category: "Agent")
+        }
+
         self.conversationManager = manager
         isConnected = true
         consoleLog.log("Agent session ready (direct API)", category: "Agent")
@@ -113,11 +121,20 @@ final class AgentSession {
             return
         }
 
+        // Cancel any in-progress agent turn before starting a new one
+        if let existingTask = streamingTask {
+            consoleLog.log("Interrupting current agent turn", level: .debug, category: "Agent")
+            existingTask.cancel()
+            streamingTask = nil
+        }
+
         isProcessing = true
         messages.append(ChatMessage(role: .user, content: text))
         consoleLog.log("User: \(text)", category: "Chat")
 
         streamingTask = Task {
+            // Patch any incomplete tool calls in history before sending
+            await conversationManager.patchIncompleteToolCalls()
             await conversationManager.sendMessage(text)
         }
     }

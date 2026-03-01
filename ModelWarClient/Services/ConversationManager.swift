@@ -19,9 +19,11 @@ final class ConversationManager {
     var onStreamToolStart: ((String) -> Void)?
     var onContentBlockStop: (() -> Void)?
     var onToolUse: ((String, String) -> Void)?
-    var onToolResult: ((String, Bool) -> Void)?
+    var onToolResult: ((String, String, Bool) -> Void)?  // (toolName, content, isError)
     var onTurnEnded: (() -> Void)?
     var onError: ((String) -> Void)?
+    /// Diagnostic log callback — surfaces internal logs to the app console
+    var onDiagnosticLog: ((String) -> Void)?
 
     /// Tool executor callback — called with (toolName, arguments) → result string
     var toolExecutor: ((String, [String: AnyCodableValue]) async throws -> String)?
@@ -44,19 +46,73 @@ final class ConversationManager {
             fullMessage = contextParts.joined(separator: "\n") + "\n\nUser message: \(text)"
         }
 
+        diagLog("Sending message (\(fullMessage.count) chars), history: \(conversationHistory.count) messages")
         conversationHistory.append(ClaudeMessage(role: "user", content: fullMessage))
 
         // Agentic loop: keep calling API while there are tool calls
         await runAgenticLoop()
     }
 
+    /// Patch conversation history if the last assistant message has tool_use blocks
+    /// without corresponding tool_result blocks (e.g., user interrupted mid-tool-execution).
+    func patchIncompleteToolCalls() {
+        guard let lastAssistantIndex = conversationHistory.lastIndex(where: { $0.role == "assistant" }) else { return }
+
+        let assistantMessage = conversationHistory[lastAssistantIndex]
+        guard case .blocks(let blocks) = assistantMessage.content else { return }
+
+        // Collect tool_use IDs from the assistant message
+        let toolUseIds: [String] = blocks.compactMap { block in
+            switch block {
+            case .toolUse(let id, _, _): return id
+            case .serverToolUse(let id, _, _): return id
+            default: return nil
+            }
+        }
+        guard !toolUseIds.isEmpty else { return }
+
+        // Check if there's already a user message with tool results after the assistant
+        let nextIndex = lastAssistantIndex + 1
+        if nextIndex < conversationHistory.count {
+            let nextMessage = conversationHistory[nextIndex]
+            if nextMessage.role == "user", case .blocks(let resultBlocks) = nextMessage.content {
+                let existingResultIds = Set(resultBlocks.compactMap { block -> String? in
+                    if case .toolResult(let toolUseId, _, _) = block { return toolUseId }
+                    return nil
+                })
+                let missingIds = toolUseIds.filter { !existingResultIds.contains($0) }
+                if missingIds.isEmpty { return } // All tool calls have results
+
+                // Add missing results to the existing tool results message
+                var updatedBlocks = resultBlocks
+                for id in missingIds {
+                    updatedBlocks.append(.toolResult(toolUseId: id, content: "Cancelled by user", isError: true))
+                }
+                conversationHistory[nextIndex] = ClaudeMessage(role: "user", blocks: updatedBlocks)
+                diagLog("Patched \(missingIds.count) missing tool results (appended to existing)")
+                return
+            }
+        }
+
+        // No tool results message exists — add one with all results marked cancelled
+        let cancelledResults = toolUseIds.map { id in
+            ClaudeContentBlock.toolResult(toolUseId: id, content: "Cancelled by user", isError: true)
+        }
+        conversationHistory.append(ClaudeMessage(role: "user", blocks: cancelledResults))
+        diagLog("Patched \(toolUseIds.count) missing tool results (new message)")
+    }
+
     // MARK: - Agentic Loop
 
     private func runAgenticLoop() async {
         var continueLoop = true
+        var loopIteration = 0
 
         while continueLoop {
             continueLoop = false
+            loopIteration += 1
+
+            diagLog("API call #\(loopIteration): model=\(model) history=\(conversationHistory.count) messages")
 
             let request = ClaudeRequest(
                 model: model,
@@ -76,14 +132,21 @@ final class ConversationManager {
             var currentTextAccumulator = ""  // Accumulate streamed text
             var currentThinkingAccumulator = ""  // Accumulate streamed thinking
             var currentThinkingSignature = ""  // Track thinking signature from block start
+            var currentWebSearchResults: [ClaudeContentBlock.WebSearchResultEntry] = []
             var pendingToolUses: [(id: String, name: String, input: [String: AnyCodableValue])] = []
             var stopReason: String?
+            var eventCount = 0
 
             do {
                 let stream = claudeClient.streamMessage(request: request)
+                diagLog("Stream created, awaiting events...")
 
                 for try await event in stream {
-                    if Task.isCancelled { break }
+                    eventCount += 1
+                    if Task.isCancelled {
+                        diagWarning("Task cancelled during stream after \(eventCount) events")
+                        break
+                    }
 
                     switch event.type {
                     case .messageStart:
@@ -111,6 +174,20 @@ final class ConversationManager {
                                 currentToolId = contentBlock["id"] as? String ?? ""
                                 currentToolName = contentBlock["name"] as? String ?? ""
                                 onStreamToolStart?(currentToolName)
+                            case "web_search_tool_result":
+                                currentToolId = contentBlock["tool_use_id"] as? String ?? ""
+                                currentWebSearchResults = []
+                                if let contentArray = contentBlock["content"] as? [[String: Any]] {
+                                    currentWebSearchResults = contentArray.compactMap { entry in
+                                        ClaudeContentBlock.WebSearchResultEntry(
+                                            type: entry["type"] as? String ?? "",
+                                            url: entry["url"] as? String,
+                                            title: entry["title"] as? String,
+                                            encryptedContent: entry["encrypted_content"] as? String,
+                                            pageAge: entry["page_age"] as? String
+                                        )
+                                    }
+                                }
                             default:
                                 break
                             }
@@ -177,6 +254,16 @@ final class ConversationManager {
                             currentToolId = ""
                             currentToolName = ""
                             currentToolInputJSON = ""
+                        case "web_search_tool_result":
+                            if !currentToolId.isEmpty {
+                                assistantBlocks.append(.webSearchResult(
+                                    toolUseId: currentToolId,
+                                    content: currentWebSearchResults
+                                ))
+                                diagLog("Web search result captured (\(currentWebSearchResults.count) entries)")
+                            }
+                            currentToolId = ""
+                            currentWebSearchResults = []
                         default:
                             break
                         }
@@ -205,39 +292,51 @@ final class ConversationManager {
                 }
             } catch {
                 if !Task.isCancelled {
-                    log.error("Stream error: \(error.localizedDescription)")
+                    diagError("Stream error after \(eventCount) events: \(error.localizedDescription)")
                     onError?(error.localizedDescription)
+                } else {
+                    diagLog("Stream cancelled after \(eventCount) events")
                 }
                 onTurnEnded?()
                 return
             }
 
+            diagLog("Stream done: \(eventCount) events, \(assistantBlocks.count) blocks, stop=\(stopReason ?? "nil")")
+
             // Append assistant message to history (includes all blocks: thinking, text, tool_use)
             if !assistantBlocks.isEmpty {
                 conversationHistory.append(ClaudeMessage(role: "assistant", blocks: assistantBlocks))
+            } else {
+                diagWarning("No content blocks received from API — assistant produced no output")
             }
 
             // Handle tool use
             if stopReason == "tool_use" && !pendingToolUses.isEmpty {
                 var toolResults: [ClaudeContentBlock] = []
 
+                diagLog("Processing \(pendingToolUses.count) tool calls")
                 for toolCall in pendingToolUses {
                     // Skip server-side tools (web search) — they're handled by the API
                     if toolCall.name == "web_search" {
+                        diagLog("Skipping server-side tool: \(toolCall.name)")
                         continue
                     }
 
+                    diagLog("Executing tool: \(toolCall.name)")
                     do {
                         guard let executor = toolExecutor else {
+                            diagError("No tool executor available")
                             throw ClaudeClientError.noApiKey
                         }
                         let result = try await executor(toolCall.name, toolCall.input)
+                        diagLog("Tool \(toolCall.name) succeeded (\(result.count) chars)")
                         toolResults.append(.toolResult(toolUseId: toolCall.id, content: result, isError: nil))
-                        onToolResult?(result, false)
+                        onToolResult?(toolCall.name, result, false)
                     } catch {
                         let errorMsg = error.localizedDescription
+                        diagError("Tool \(toolCall.name) failed: \(errorMsg)")
                         toolResults.append(.toolResult(toolUseId: toolCall.id, content: errorMsg, isError: true))
-                        onToolResult?(errorMsg, true)
+                        onToolResult?(toolCall.name, errorMsg, true)
                     }
                 }
 
@@ -252,6 +351,21 @@ final class ConversationManager {
     }
 
     // MARK: - Helpers
+
+    private func diagLog(_ message: String) {
+        log.info("\(message)")
+        onDiagnosticLog?(message)
+    }
+
+    private func diagWarning(_ message: String) {
+        log.warning("\(message)")
+        onDiagnosticLog?("⚠ \(message)")
+    }
+
+    private func diagError(_ message: String) {
+        log.error("\(message)")
+        onDiagnosticLog?("✖ \(message)")
+    }
 
     private func parseToolInput(_ json: String) -> [String: AnyCodableValue] {
         guard let data = json.data(using: .utf8),

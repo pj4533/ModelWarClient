@@ -104,8 +104,8 @@ struct ChatBubble: View {
         switch message.role {
         case .toolUse(let name):
             return toolUseSummary(name: name, content: message.content)
-        case .toolResult:
-            return toolResultSummary(content: message.content)
+        case .toolResult(let name, _):
+            return toolResultSummary(name: name, content: message.content)
         default:
             return nil
         }
@@ -117,8 +117,8 @@ struct ChatBubble: View {
         switch message.role {
         case .toolUse(let name):
             return toolUseDetail(name: name, content: message.content)
-        case .toolResult:
-            return toolResultDetail(content: message.content)
+        case .toolResult(let name, _):
+            return toolResultDetail(name: name, content: message.content)
         default:
             return nil
         }
@@ -214,39 +214,113 @@ struct ChatBubble: View {
         }
     }
 
-    // MARK: - Tool result summary
+    // MARK: - Tool result summary per type
 
-    private func toolResultSummary(content: String) -> String? {
-        if let json = message.parsedJSON {
-            if let name = json["name"] as? String, json["instruction_count"] != nil {
-                let count = json["instruction_count"]!
-                return "Warrior \"\(name)\" uploaded (\(count) instructions)"
-            }
-            if let result = json["result"] as? String {
-                return "Battle: \(result)"
-            }
-            if let name = json["name"] as? String, json["elo"] != nil {
-                let elo = json["elo"]!
-                return "\(name) (ELO: \(elo))"
-            }
-            if let error = json["error"] as? String {
-                return error
-            }
-        }
+    private func toolResultSummary(name: String, content: String) -> String? {
+        let json = message.parsedJSON
 
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.count > 80 {
-            return String(trimmed.prefix(80)) + "..."
+        switch name {
+        case "upload_warrior":
+            if let n = json?["name"] as? String, let count = json?["instruction_count"] {
+                return "Warrior \"\(n)\" uploaded (\(count) instructions)"
+            }
+            return "Warrior uploaded"
+        case "upload_arena_warrior":
+            if let n = json?["name"] as? String { return "Arena warrior \"\(n)\" uploaded" }
+            return "Arena warrior uploaded"
+        case "challenge_player":
+            if let result = json?["result"] as? String,
+               let cw = json?["challenger_wins"], let dw = json?["defender_wins"], let t = json?["ties"] {
+                return "\(result) (\(cw)W-\(dw)L-\(t)T)"
+            }
+            if let result = json?["result"] as? String { return "Battle: \(result)" }
+            return "Battle complete"
+        case "get_profile":
+            if let n = json?["name"] as? String, let r = json?["rating"] {
+                return "\(n) (rating: \(r))"
+            }
+            return "Profile loaded"
+        case "get_leaderboard":
+            if let total = json?["total_players"] { return "\(total) players" }
+            return "Leaderboard loaded"
+        case "get_player_profile":
+            if let n = json?["name"] as? String, let r = json?["rating"] {
+                return "\(n) (rating: \(r))"
+            }
+            return "Player profile loaded"
+        case "get_battle":
+            return "Battle data loaded"
+        case "get_battle_replay":
+            return "Replay data loaded"
+        case "get_battles":
+            return "Battle history loaded"
+        case "get_player_battles":
+            return "Player battles loaded"
+        case "get_warrior":
+            if let n = json?["name"] as? String { return "Warrior \"\(n)\"" }
+            return "Warrior data loaded"
+        case "start_arena":
+            return "Arena started"
+        case "get_arena_leaderboard":
+            return "Arena leaderboard loaded"
+        case "get_arena":
+            return "Arena data loaded"
+        case "get_arena_replay":
+            return "Arena replay loaded"
+        default:
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.count > 80 ? String(trimmed.prefix(80)) + "..." : (trimmed.isEmpty ? nil : trimmed)
         }
-        return trimmed.isEmpty ? nil : trimmed
     }
 
-    // MARK: - Tool result detail
+    // MARK: - Tool result detail per type
 
-    private func toolResultDetail(content: String) -> String? {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 80 else { return nil }
-        return trimmed
+    private func toolResultDetail(name: String, content: String) -> String? {
+        let json = message.parsedJSON
+
+        switch name {
+        case "challenge_player":
+            if let ratingChange = json?["rating_change"], let newRating = json?["new_rating"] {
+                return "Rating change: \(ratingChange), new rating: \(newRating)"
+            }
+            return nil
+        case "get_profile":
+            if let w = json?["wins"], let l = json?["losses"], let t = json?["ties"] {
+                var detail = "W: \(w)  L: \(l)  T: \(t)"
+                if let warrior = json?["warrior"] as? [String: Any],
+                   let wn = warrior["name"] as? String {
+                    detail += "\nWarrior: \(wn)"
+                }
+                return detail
+            }
+            return nil
+        case "upload_warrior", "upload_arena_warrior":
+            return nil  // Summary is sufficient
+        case "get_leaderboard":
+            // Show top entries
+            if let entries = json?["leaderboard"] as? [[String: Any]] {
+                let top = entries.prefix(5).map { entry in
+                    let rank = entry["rank"] ?? "?"
+                    let name = entry["name"] as? String ?? "?"
+                    let rating = entry["rating"] ?? "?"
+                    return "#\(rank) \(name) (\(rating))"
+                }
+                return top.joined(separator: "\n")
+            }
+            return nil
+        default:
+            // For other tools, show pretty-printed JSON or raw content
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count > 80 else { return nil }
+            // Try to pretty-print JSON
+            if let data = content.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data),
+               let pretty = try? JSONSerialization.data(withJSONObject: obj, options: .prettyPrinted),
+               let prettyStr = String(data: pretty, encoding: .utf8) {
+                return prettyStr
+            }
+            return trimmed
+        }
     }
 
     // MARK: - Shared styling properties
@@ -282,7 +356,7 @@ struct ChatBubble: View {
             case "web_search": return "magnifyingglass"
             default: return "wrench"
             }
-        case .toolResult(let isError): return isError ? "xmark.circle" : "checkmark.circle"
+        case .toolResult(_, let isError): return isError ? "xmark.circle" : "checkmark.circle"
         case .user: return "person"
         }
     }
@@ -292,7 +366,7 @@ struct ChatBubble: View {
         case .thinking: return .gray
         case .assistant: return .blue
         case .toolUse: return .orange
-        case .toolResult(let isError): return isError ? .red : .green
+        case .toolResult(_, let isError): return isError ? .red : .green
         case .user: return .purple
         }
     }
@@ -302,7 +376,7 @@ struct ChatBubble: View {
         case .thinking: return "Thinking"
         case .assistant: return "Claude"
         case .toolUse(let name): return friendlyToolName(name)
-        case .toolResult(let isError): return isError ? "Error" : "Result"
+        case .toolResult(let name, let isError): return isError ? "Error" : friendlyToolName(name)
         case .user: return "You"
         }
     }
@@ -332,7 +406,7 @@ struct ChatBubble: View {
         case .thinking: return Color.gray.opacity(0.1)
         case .assistant: return Color.blue.opacity(0.05)
         case .toolUse: return Color.orange.opacity(0.08)
-        case .toolResult(let isError): return isError ? Color.red.opacity(0.08) : Color.green.opacity(0.05)
+        case .toolResult(_, let isError): return isError ? Color.red.opacity(0.08) : Color.green.opacity(0.05)
         case .user: return Color.purple.opacity(0.08)
         }
     }
