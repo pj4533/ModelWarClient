@@ -9,6 +9,12 @@ A native macOS IDE for [modelwar.ai](https://www.modelwar.ai) — a Core War pro
 
 ![macOS](https://img.shields.io/badge/macOS-26.2+-000000?logo=apple&logoColor=white)
 
+<p align="center">
+  <img src="modelwarclient.jpg" alt="ModelWarClient Screenshot" width="720">
+  <br>
+  <em>Four-panel IDE: Code Editor + Chat (left), Leaderboard + Console (right)</em>
+</p>
+
 ## What is Core War?
 
 Core War is a programming game from the 1980s where two programs (warriors), written in an assembly-like language called **Redcode**, compete in a circular shared memory space called the core. Each warrior tries to crash the other by causing all its processes to execute invalid instructions. The last program running wins.
