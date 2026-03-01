@@ -23,20 +23,25 @@ macOS SwiftUI IDE client for [modelwar.ai](https://www.modelwar.ai) — a Core W
 
 ### Claude API Integration (Direct HTTPS)
 The app makes direct HTTPS calls to the Anthropic Messages API — no Python subprocess or bridge needed:
-- **ClaudeClient** (`Services/ClaudeClient.swift`): HTTP client with SSE streaming parser. Uses `URLSession.AsyncBytes` for server-sent events.
-- **ConversationManager** (`Services/ConversationManager.swift`): Agentic tool loop. Manages conversation history, streams responses, and executes tool calls inline via async/await.
-- **ToolDefinitions** (`Services/ToolDefinitions.swift`): All 16 ModelWar tool schemas + built-in web search tool.
-- **SystemPrompt** (`Services/SystemPrompt.swift`): Core War expert system prompt.
+- **ClaudeClient** (`Services/ClaudeClient.swift`): HTTP client with SSE streaming parser. Uses `URLSession.AsyncBytes` for server-sent events. Extracts event type from the JSON payload `type` field rather than relying on empty-line boundaries (since `bytes.lines` strips empty lines). Includes diagnostic logging via `onDiagnosticLog` callback.
+- **ConversationManager** (`Services/ConversationManager.swift`): Agentic tool loop. Manages conversation history, streams responses, and executes tool calls inline via async/await. Handles `server_tool_use` and `web_search_tool_result` content blocks for Anthropic's built-in web search. Patches incomplete tool calls on user interruption (only for client-side `toolUse` blocks, not server-side `serverToolUse` blocks). Includes diagnostic logging throughout.
+- **ToolDefinitions** (`Services/ToolDefinitions.swift`): All 18 ModelWar tool schemas + built-in web search tool.
+- **SystemPrompt** (`Services/SystemPrompt.swift`): Dynamic system prompt that instructs Claude to call `get_skill` on startup to fetch the latest Core War rules and reference material from modelwar.ai, rather than hardcoding game rules.
 
 ### Tool Execution Cycle
-1. ConversationManager streams API response, accumulates tool_use content blocks
-2. On `stop_reason == "tool_use"`, executes each tool via `toolExecutor` callback
+1. ConversationManager streams API response, accumulates `tool_use`, `server_tool_use`, and `web_search_tool_result` content blocks
+2. On `stop_reason == "tool_use"`, executes each client-side tool via `toolExecutor` callback (skips server-side `web_search` tool)
 3. `AppSession.handleTool()` dispatches to the appropriate API call and returns result
 4. ConversationManager appends tool results to history and loops back to API
+5. If the user interrupts mid-tool-execution, `patchIncompleteToolCalls()` adds "Cancelled by user" results for any unanswered client-side tool_use blocks (server-side `serverToolUse` blocks are excluded from patching)
 
-Tools: `upload_warrior`, `challenge_player`, `get_profile`, `get_leaderboard`, `get_player_profile`, `get_battle`, `get_battle_replay`, `get_battles`, `get_player_battles`, `get_warrior`, `upload_arena_warrior`, `start_arena`, `get_arena_leaderboard`, `get_arena`, `get_arena_replay`
+Tools (18): `upload_warrior`, `challenge_player`, `get_profile`, `get_leaderboard`, `get_player_profile`, `get_battle`, `get_battle_replay`, `get_battles`, `get_player_battles`, `get_warrior`, `upload_arena_warrior`, `start_arena`, `get_arena_leaderboard`, `get_arena`, `get_arena_replay`, `get_skill`, `get_theory`
 
-Web search is handled by Anthropic's built-in `web_search_20250305` tool (server-side, no client execution needed).
+- `get_skill` fetches `modelwar.ai/skill.md` — the authoritative Core War rules, Redcode reference, and strategy guide. The system prompt instructs Claude to call this before its first response.
+- `get_theory` fetches `modelwar.ai/docs/theory.md` — advanced Core War strategy theory for deeper analysis.
+- Both are plain HTTPS fetches (no API authentication needed), handled by `AppSession`.
+
+Web search is handled by Anthropic's built-in `web_search_20250305` tool (server-side, no client execution needed). The SSE parser handles both `server_tool_use` and `web_search_tool_result` block types for this.
 
 ### Key Services
 - **APIClient** (`Services/APIClient.swift`): `@MainActor` async wrapper for modelwar.ai REST API (`https://www.modelwar.ai/api`). Full API spec at **https://modelwar.ai/openapi.json**.
@@ -45,7 +50,7 @@ Web search is handled by Anthropic's built-in `web_search_20250305` tool (server
 ### UI Structure
 - **IDELayout**: HSplitView + VSplitView for resizable 4-panel desktop layout
 - **CodeEditorView**: `NSViewRepresentable` wrapping `NSTextView` with Redcode syntax highlighting
-- **ChatView**: ScrollViewReader + LazyVStack with 200-message render window and throttled streaming scroll
+- **ChatView**: ScrollViewReader + LazyVStack with 200-message render window. Uses `defaultScrollAnchor(.bottom)` plus `onChange(of: content.count)` to keep scrolled to bottom during streaming. Tool use and tool result messages carry the tool name through `ChatMessageRole` for per-tool summaries in `ChatBubble`.
 - Battle replay uses WKWebView with bundled pmars-ts JavaScript
 
 ## File Organization
