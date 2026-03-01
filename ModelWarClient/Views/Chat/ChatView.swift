@@ -133,13 +133,19 @@ struct ChatView: View {
                         .padding(8)
                     }
                     .defaultScrollAnchor(.bottom)
-                    // Discrete event: new message added -- animate scroll
+                    // Discrete event: new message added — animate scroll
                     .onChange(of: appSession.agentSession.messages.count) {
                         scrollToBottom(proxy: proxy, animated: true)
                     }
-                    // Processing state changed -- animate scroll
+                    // Processing state changed — animate scroll
                     .onChange(of: appSession.agentSession.isProcessing) {
                         scrollToBottom(proxy: proxy, animated: true)
+                    }
+                    // Streaming content growing — scroll without animation to keep up
+                    .onChange(of: appSession.agentSession.messages.last?.content.count ?? 0) {
+                        if appSession.agentSession.messages.last?.isStreaming == true {
+                            scrollToBottom(proxy: proxy, animated: false)
+                        }
                     }
                 }
             }
